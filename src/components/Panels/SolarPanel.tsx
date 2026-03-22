@@ -29,7 +29,8 @@ function kpColor(kp: number): string {
   return COLORS.red;
 }
 
-function xrayColor(xrayFlux: string): string {
+function xrayColor(xrayFlux: string | undefined): string {
+  if (!xrayFlux) return COLORS.text;
   const cls = xrayFlux.charAt(0).toUpperCase();
   switch (cls) {
     case 'A': case 'B': return COLORS.green;
@@ -162,16 +163,18 @@ const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
 
       <DataRow
         label="X-Ray Flux"
-        value={data.xray.classification}
-        color={xrayColor(data.xray.classification)}
+        value={data.xray?.classification ?? '—'}
+        color={xrayColor(data.xray?.classification)}
       />
 
+      {data.solarWind && (
       <DataRow
         label="Solar Wind"
         value={data.solarWind.speed}
         color={data.solarWind.speed > 500 ? COLORS.red : data.solarWind.speed > 400 ? COLORS.amber : COLORS.green}
         suffix="km/s"
       />
+      )}
 
       <DataRow
         label="A-Index"
@@ -179,7 +182,7 @@ const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
         color={data.aIndex > 30 ? COLORS.red : data.aIndex > 15 ? COLORS.amber : COLORS.green}
       />
 
-      {data.solarWind.bz != null && (
+      {data.solarWind?.bz != null && (
         <DataRow
           label="Bz"
           value={data.solarWind.bz.toFixed(1)}
