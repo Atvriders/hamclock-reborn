@@ -38,7 +38,7 @@ const SolarImage: React.FC = () => {
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const source = IMAGE_SOURCES.find((s) => s.id === activeSource)!;
+  const source = IMAGE_SOURCES.find((s) => s.id === activeSource) ?? IMAGE_SOURCES[0];
 
   // Build the image URL — use cache-busting only on refresh, not on every render
   const imageUrl = `${source.url}?t=${cacheBuster}`;

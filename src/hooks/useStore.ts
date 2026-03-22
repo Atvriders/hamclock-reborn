@@ -29,8 +29,8 @@ export const useStore = create<AppState>((set) => ({
   // User settings
   callsign: localStorage.getItem(CALLSIGN_KEY) ?? '',
   gridSquare: localStorage.getItem(GRID_KEY) ?? '',
-  userLat: parseFloat(localStorage.getItem(LAT_KEY) ?? '40.0'),
-  userLng: parseFloat(localStorage.getItem(LNG_KEY) ?? '-74.0'),
+  userLat: parseFloat(localStorage.getItem(LAT_KEY) || '') || 40.0,
+  userLng: parseFloat(localStorage.getItem(LNG_KEY) || '') || -74.0,
 
   // UI meta
   utcTime: new Date(),
