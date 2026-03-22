@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
   TileLayer,
@@ -7,6 +7,7 @@ import {
   Marker,
   Popup,
   Tooltip,
+  ImageOverlay,
   useMap,
 } from 'react-leaflet';
 import L from 'leaflet';
@@ -25,6 +26,39 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
+// ── Map styles ───────────────────────────────────────────────────
+type MapStyle = 'dark' | 'satellite' | 'terrain' | 'light';
+
+const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoom: number; attribution?: string }> = {
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  },
+  satellite: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    maxZoom: 18,
+  },
+  terrain: {
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    subdomains: 'abc',
+    maxZoom: 17,
+  },
+  light: {
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  },
+};
+
+// ── Overlay URLs ─────────────────────────────────────────────────
+const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
+const AURORA_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg';
+const DRAP_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/animations/d-rap/global/d-rap/latest.png';
+
+const WORLD_BOUNDS: L.LatLngBoundsExpression = [[-90, -180], [90, 180]];
+const NORTH_BOUNDS: L.LatLngBoundsExpression = [[0, -180], [90, 180]];
+
 // ── Props ─────────────────────────────────────────────────────────
 interface WorldMapProps {
   dxSpots: DXSpot[];
@@ -32,6 +66,25 @@ interface WorldMapProps {
   userLat?: number;
   userLng?: number;
 }
+
+// ── Layer visibility state ────────────────────────────────────────
+interface LayerState {
+  dayNight: boolean;
+  grayLine: boolean;
+  muf: boolean;
+  drap: boolean;
+  aurora: boolean;
+  gridSquares: boolean;
+}
+
+const DEFAULT_LAYERS: LayerState = {
+  dayNight: true,
+  grayLine: true,
+  muf: false,
+  drap: false,
+  aurora: false,
+  gridSquares: false,
+};
 
 // ── Custom icons ──────────────────────────────────────────────────
 const qthIcon = L.divIcon({
@@ -68,7 +121,7 @@ const satIcon = L.divIcon({
 });
 
 // ── Sub-component: auto-update night overlay every 60 s ──────────
-function NightOverlay() {
+function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: boolean }) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -82,18 +135,20 @@ function NightOverlay() {
   return (
     <>
       {/* Night side */}
-      <Polygon
-        positions={nightCoords}
-        pathOptions={{
-          color: 'transparent',
-          fillColor: '#000',
-          fillOpacity: 0.45,
-          interactive: false,
-        }}
-      />
+      {showNight && (
+        <Polygon
+          positions={nightCoords}
+          pathOptions={{
+            color: 'transparent',
+            fillColor: '#000',
+            fillOpacity: 0.45,
+            interactive: false,
+          }}
+        />
+      )}
 
       {/* Gray line — dawn band */}
-      {grayLine.dawn.length > 2 && (
+      {showGray && grayLine.dawn.length > 2 && (
         <Polygon
           positions={grayLine.dawn}
           pathOptions={{
@@ -106,7 +161,7 @@ function NightOverlay() {
       )}
 
       {/* Gray line — dusk band */}
-      {grayLine.dusk.length > 2 && (
+      {showGray && grayLine.dusk.length > 2 && (
         <Polygon
           positions={grayLine.dusk}
           pathOptions={{
@@ -250,6 +305,208 @@ function SatelliteMarkers({ satellites }: { satellites: SatellitePosition[] }) {
   );
 }
 
+// ── Sub-component: Dynamic tile layer (switches base map) ─────────
+function BaseTileLayer({ mapStyle }: { mapStyle: MapStyle }) {
+  const map = useMap();
+  const layerRef = useRef<L.TileLayer | null>(null);
+
+  useEffect(() => {
+    if (layerRef.current) {
+      map.removeLayer(layerRef.current);
+    }
+    const cfg = MAP_TILE_URLS[mapStyle];
+    const layer = L.tileLayer(cfg.url, {
+      subdomains: cfg.subdomains || 'abc',
+      maxZoom: cfg.maxZoom,
+    });
+    layer.addTo(map);
+    // Make sure it's below all overlays
+    layer.bringToBack();
+    layerRef.current = layer;
+
+    return () => {
+      if (layerRef.current) {
+        map.removeLayer(layerRef.current);
+        layerRef.current = null;
+      }
+    };
+  }, [mapStyle, map]);
+
+  return null;
+}
+
+// ── Sub-component: Layer Control Panel ────────────────────────────
+function LayerControlPanel({
+  layers,
+  onToggle,
+  mapStyle,
+  onMapStyle,
+}: {
+  layers: LayerState;
+  onToggle: (key: keyof LayerState) => void;
+  mapStyle: MapStyle;
+  onMapStyle: (style: MapStyle) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  const checkboxRow = (label: string, key: keyof LayerState) => (
+    <label
+      key={key}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        cursor: 'pointer',
+        fontSize: '11px',
+        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+        color: layers[key] ? '#39ff14' : 'rgba(255,255,255,0.55)',
+        transition: 'color 0.15s',
+        userSelect: 'none',
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={layers[key]}
+        onChange={() => onToggle(key)}
+        style={{ display: 'none' }}
+      />
+      <span
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 3,
+          border: layers[key] ? '1.5px solid #39ff14' : '1.5px solid rgba(255,255,255,0.3)',
+          background: layers[key] ? 'rgba(57,255,20,0.15)' : 'transparent',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '10px',
+          lineHeight: 1,
+          flexShrink: 0,
+          transition: 'all 0.15s',
+        }}
+      >
+        {layers[key] ? '\u2713' : ''}
+      </span>
+      {label}
+    </label>
+  );
+
+  const styleBtn = (label: string, style: MapStyle) => (
+    <button
+      key={style}
+      onClick={() => onMapStyle(style)}
+      style={{
+        padding: '3px 7px',
+        fontSize: '10px',
+        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+        border: mapStyle === style ? '1px solid #39ff14' : '1px solid rgba(255,255,255,0.2)',
+        borderRadius: 3,
+        background: mapStyle === style ? 'rgba(57,255,20,0.15)' : 'rgba(255,255,255,0.05)',
+        color: mapStyle === style ? '#39ff14' : 'rgba(255,255,255,0.6)',
+        cursor: 'pointer',
+        transition: 'all 0.15s',
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        zIndex: 1000,
+        background: 'rgba(10, 14, 10, 0.82)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        border: '1px solid rgba(57,255,20,0.25)',
+        borderRadius: 8,
+        padding: collapsed ? '6px 10px' : '10px 14px',
+        minWidth: collapsed ? 'auto' : 170,
+        boxShadow: '0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(57,255,20,0.08)',
+        color: '#eee',
+        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: collapsed ? 0 : 8,
+        }}
+      >
+        <span
+          style={{
+            fontSize: '10px',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: '#39ff14',
+            opacity: 0.8,
+          }}
+        >
+          Layers
+        </span>
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'rgba(255,255,255,0.5)',
+            cursor: 'pointer',
+            fontSize: '13px',
+            padding: '0 0 0 8px',
+            lineHeight: 1,
+          }}
+        >
+          {collapsed ? '\u25BC' : '\u25B2'}
+        </button>
+      </div>
+
+      {!collapsed && (
+        <>
+          {/* Overlay checkboxes */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+            {checkboxRow('Day/Night', 'dayNight')}
+            {checkboxRow('Gray Line', 'grayLine')}
+            {checkboxRow('MUF Map', 'muf')}
+            {checkboxRow('DRAP', 'drap')}
+            {checkboxRow('Aurora', 'aurora')}
+            {checkboxRow('Grid Squares', 'gridSquares')}
+          </div>
+
+          {/* Divider */}
+          <div
+            style={{
+              height: 1,
+              background: 'rgba(57,255,20,0.15)',
+              margin: '8px 0',
+            }}
+          />
+
+          {/* Map style buttons */}
+          <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', marginBottom: 5 }}>
+            Map Style
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {styleBtn('Dark', 'dark')}
+            {styleBtn('Sat', 'satellite')}
+            {styleBtn('Topo', 'terrain')}
+            {styleBtn('Light', 'light')}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────
 export default function WorldMap({
   dxSpots,
@@ -258,11 +515,28 @@ export default function WorldMap({
   userLng,
 }: WorldMapProps) {
   const mapRef = useRef<L.Map | null>(null);
+  const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
+  const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
+
+  // Cache-bust overlay URLs every 10 minutes
+  const [cacheBust, setCacheBust] = useState(() => Math.floor(Date.now() / 600_000));
+  useEffect(() => {
+    const id = setInterval(() => setCacheBust(Math.floor(Date.now() / 600_000)), 600_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const toggleLayer = useCallback((key: keyof LayerState) => {
+    setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const center: [number, number] = useMemo(
     () => [userLat ?? 20, userLng ?? 0],
     [userLat, userLng]
   );
+
+  const mufUrl = `${MUF_OVERLAY_URL}?_=${cacheBust}`;
+  const drapUrl = `${DRAP_OVERLAY_URL}?_=${cacheBust}`;
+  const auroraUrl = `${AURORA_OVERLAY_URL}?_=${cacheBust}`;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -292,6 +566,14 @@ export default function WorldMap({
         }
       `}</style>
 
+      {/* Layer control panel (rendered outside MapContainer so it's always on top) */}
+      <LayerControlPanel
+        layers={layers}
+        onToggle={toggleLayer}
+        mapStyle={mapStyle}
+        onMapStyle={setMapStyle}
+      />
+
       <MapContainer
         center={center}
         zoom={2}
@@ -303,18 +585,47 @@ export default function WorldMap({
         style={{ width: '100%', height: '100%' }}
         ref={mapRef}
       >
-        {/* Dark tile layer */}
-        <TileLayer
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
-          maxZoom={19}
-        />
+        {/* Dynamic base tile layer */}
+        <BaseTileLayer mapStyle={mapStyle} />
 
         {/* Day/Night terminator + gray line */}
-        <NightOverlay />
+        <NightOverlay showNight={layers.dayNight} showGray={layers.grayLine} />
+
+        {/* MUF overlay */}
+        {layers.muf && (
+          <ImageOverlay
+            url={mufUrl}
+            bounds={WORLD_BOUNDS}
+            opacity={0.6}
+            interactive={false}
+            className="muf-overlay"
+          />
+        )}
+
+        {/* DRAP overlay */}
+        {layers.drap && (
+          <ImageOverlay
+            url={drapUrl}
+            bounds={WORLD_BOUNDS}
+            opacity={0.55}
+            interactive={false}
+            className="drap-overlay"
+          />
+        )}
+
+        {/* Aurora overlay (northern hemisphere) */}
+        {layers.aurora && (
+          <ImageOverlay
+            url={auroraUrl}
+            bounds={NORTH_BOUNDS}
+            opacity={0.5}
+            interactive={false}
+            className="aurora-overlay"
+          />
+        )}
 
         {/* Maidenhead grid */}
-        <MaidenheadGrid />
+        {layers.gridSquares && <MaidenheadGrid />}
 
         {/* DX spots */}
         <DXSpotMarkers spots={dxSpots} />
