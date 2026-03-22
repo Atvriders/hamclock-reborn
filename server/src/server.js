@@ -17,6 +17,11 @@ const cache = {
   bands:      { data: null, ts: 0, ttl: 10 * 60_000 },
   dxspots:    { data: null, ts: 0, ttl: 1 * 60_000 },
   satellites: { data: null, ts: 0, ttl: 15 * 60_000 },
+  mapMuf:     { data: null, ts: 0, ttl: 15 * 60_000 },
+  mapDrap:    { data: null, ts: 0, ttl: 15 * 60_000 },
+  mapAurora:  { data: null, ts: 0, ttl: 15 * 60_000 },
+  solarImage: { data: null, ts: 0, ttl: 15 * 60_000 },
+  mapFoF2:    { data: null, ts: 0, ttl: 15 * 60_000 },
 };
 
 function getCached(key) {
@@ -409,6 +414,199 @@ app.get('/api/satellites', async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Endpoint: /api/maps/muf — Maximum Usable Frequency map
+// ---------------------------------------------------------------------------
+async function fetchMufMap() {
+  const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-muf.json';
+  const KC2G_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
+
+  try {
+    const frames = await safeFetchJson(NOAA_URL);
+    if (Array.isArray(frames) && frames.length > 0) {
+      const latest = frames[frames.length - 1];
+      const imageUrl = `https://services.swpc.noaa.gov/${latest.url}`;
+      return { imageUrl, timestamp: latest.time_tag || new Date().toISOString() };
+    }
+  } catch {
+    // Fall back to KC2G
+  }
+
+  return { imageUrl: KC2G_URL, timestamp: new Date().toISOString() };
+}
+
+app.get('/api/maps/muf', async (_req, res) => {
+  try {
+    const cached = getCached('mapMuf');
+    if (cached) return res.json(cached);
+
+    const data = await fetchMufMap();
+    setCache('mapMuf', data);
+    res.json(data);
+  } catch (err) {
+    console.error('[/api/maps/muf] Error:', err.message);
+    const fallback = cache.mapMuf.data;
+    if (fallback) return res.json(fallback);
+    res.status(502).json({ error: 'Failed to fetch MUF map data' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint: /api/maps/drap — D-Region Absorption Prediction
+// ---------------------------------------------------------------------------
+async function fetchDrapMap() {
+  const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/d-region-absorption-predictions.json';
+
+  const frames = await safeFetchJson(NOAA_URL);
+  if (Array.isArray(frames) && frames.length > 0) {
+    const latest = frames[frames.length - 1];
+    const imageUrl = `https://services.swpc.noaa.gov/${latest.url}`;
+    return { imageUrl, timestamp: latest.time_tag || new Date().toISOString() };
+  }
+
+  throw new Error('No DRAP animation frames returned');
+}
+
+app.get('/api/maps/drap', async (_req, res) => {
+  try {
+    const cached = getCached('mapDrap');
+    if (cached) return res.json(cached);
+
+    const data = await fetchDrapMap();
+    setCache('mapDrap', data);
+    res.json(data);
+  } catch (err) {
+    console.error('[/api/maps/drap] Error:', err.message);
+    const fallback = cache.mapDrap.data;
+    if (fallback) return res.json(fallback);
+    res.status(502).json({ error: 'Failed to fetch DRAP map data' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint: /api/maps/aurora — Aurora oval map
+// ---------------------------------------------------------------------------
+async function fetchAuroraMap() {
+  const JSON_URL = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
+  const IMAGE_URL = 'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg';
+
+  let auroraData = null;
+  let observationTime = null;
+
+  try {
+    const json = await safeFetchJson(JSON_URL);
+    if (Array.isArray(json) && json.length > 0) {
+      // The JSON contains an array of [lon, lat, aurora_power] entries
+      // preceded by a metadata object with Observation Time
+      const meta = json.find(entry => entry['Observation Time']);
+      observationTime = meta ? meta['Observation Time'] : null;
+      auroraData = json.filter(entry => Array.isArray(entry));
+    }
+  } catch {
+    // JSON fetch failed — still return the image URL
+  }
+
+  return {
+    imageUrl: IMAGE_URL,
+    data: auroraData || [],
+    timestamp: observationTime || new Date().toISOString(),
+  };
+}
+
+app.get('/api/maps/aurora', async (_req, res) => {
+  try {
+    const cached = getCached('mapAurora');
+    if (cached) return res.json(cached);
+
+    const data = await fetchAuroraMap();
+    setCache('mapAurora', data);
+    res.json(data);
+  } catch (err) {
+    console.error('[/api/maps/aurora] Error:', err.message);
+    const fallback = cache.mapAurora.data;
+    if (fallback) return res.json(fallback);
+    res.status(502).json({ error: 'Failed to fetch aurora map data' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint: /api/solar/image — Latest SDO solar images
+// ---------------------------------------------------------------------------
+async function fetchSolarImages() {
+  // These are static URLs that always serve the latest image from NASA SDO
+  const images = [
+    {
+      type: 'AIA193',
+      url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0193.jpg',
+    },
+    {
+      type: 'HMI',
+      url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_HMIIC.jpg',
+    },
+  ];
+
+  // Verify at least one image is reachable (HEAD request)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const check = await fetch(images[0].url, { method: 'HEAD', signal: controller.signal });
+    clearTimeout(timer);
+    if (!check.ok) throw new Error(`SDO returned ${check.status}`);
+  } catch {
+    // URLs are well-known and stable; return them anyway
+  }
+
+  return { images, timestamp: new Date().toISOString() };
+}
+
+app.get('/api/solar/image', async (_req, res) => {
+  try {
+    const cached = getCached('solarImage');
+    if (cached) return res.json(cached);
+
+    const data = await fetchSolarImages();
+    setCache('solarImage', data);
+    res.json(data);
+  } catch (err) {
+    console.error('[/api/solar/image] Error:', err.message);
+    const fallback = cache.solarImage.data;
+    if (fallback) return res.json(fallback);
+    res.status(502).json({ error: 'Failed to fetch solar image data' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint: /api/maps/foF2 — foF2 critical frequency map
+// ---------------------------------------------------------------------------
+async function fetchFoF2Map() {
+  const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-fof2.json';
+
+  const frames = await safeFetchJson(NOAA_URL);
+  if (Array.isArray(frames) && frames.length > 0) {
+    const latest = frames[frames.length - 1];
+    const imageUrl = `https://services.swpc.noaa.gov/${latest.url}`;
+    return { imageUrl, timestamp: latest.time_tag || new Date().toISOString() };
+  }
+
+  throw new Error('No foF2 animation frames returned');
+}
+
+app.get('/api/maps/foF2', async (_req, res) => {
+  try {
+    const cached = getCached('mapFoF2');
+    if (cached) return res.json(cached);
+
+    const data = await fetchFoF2Map();
+    setCache('mapFoF2', data);
+    res.json(data);
+  } catch (err) {
+    console.error('[/api/maps/foF2] Error:', err.message);
+    const fallback = cache.mapFoF2.data;
+    if (fallback) return res.json(fallback);
+    res.status(502).json({ error: 'Failed to fetch foF2 map data' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Endpoint: /api/health
 // ---------------------------------------------------------------------------
 app.get('/api/health', (_req, res) => {
@@ -420,6 +618,11 @@ app.get('/api/health', (_req, res) => {
       bands: cache.bands.data ? 'populated' : 'empty',
       dxspots: cache.dxspots.data ? 'populated' : 'empty',
       satellites: cache.satellites.data ? 'populated' : 'empty',
+      mapMuf: cache.mapMuf.data ? 'populated' : 'empty',
+      mapDrap: cache.mapDrap.data ? 'populated' : 'empty',
+      mapAurora: cache.mapAurora.data ? 'populated' : 'empty',
+      solarImage: cache.solarImage.data ? 'populated' : 'empty',
+      mapFoF2: cache.mapFoF2.data ? 'populated' : 'empty',
     },
     timestamp: new Date().toISOString(),
   });

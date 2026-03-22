@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import 'leaflet/dist/leaflet.css';
 import { useStore as useAppStore } from './hooks/useStore';
 import { useDataFetch } from './hooks/useDataFetch';
+import SetupScreen from './components/SetupScreen';
 import type { SolarData, BandConditions, DXSpot } from './types';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -249,5 +250,38 @@ function AppInner() {
 }
 
 export default function App() {
+  const callsign = useAppStore((s) => s.callsign);
+  const setCallsign = useAppStore((s) => s.setCallsign);
+  const setGridSquare = useAppStore((s) => s.setGridSquare);
+  const setUserLocation = useAppStore((s) => s.setUserLocation);
+
+  // Track whether setup has been completed this session (covers the "skip" case)
+  const [setupDone, setSetupDone] = useState(() => {
+    return !!localStorage.getItem('hamclock_callsign') || !!localStorage.getItem('hamclock_setup_skipped');
+  });
+
+  const handleSetupComplete = useCallback(
+    (cs: string, grid: string, lat: number, lng: number) => {
+      if (cs) {
+        setCallsign(cs);
+        setGridSquare(grid);
+        setUserLocation(lat, lng);
+      } else {
+        // Skipped — remember so we don't show again
+        localStorage.setItem('hamclock_setup_skipped', '1');
+      }
+      setSetupDone(true);
+    },
+    [setCallsign, setGridSquare, setUserLocation],
+  );
+
+  if (!setupDone) {
+    return (
+      <ErrorBoundary>
+        <SetupScreen onComplete={handleSetupComplete} />
+      </ErrorBoundary>
+    );
+  }
+
   return <ErrorBoundary><AppInner /></ErrorBoundary>;
 }

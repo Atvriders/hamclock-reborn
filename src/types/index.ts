@@ -186,6 +186,7 @@ export interface AppState {
 
   // User settings
   callsign: string;
+  gridSquare: string;
   userLat: number;
   userLng: number;
 
@@ -203,6 +204,7 @@ export interface AppState {
   setDayNight: (data: DayNightData) => void;
   setContests: (contests: Contest[]) => void;
   setCallsign: (cs: string) => void;
+  setGridSquare: (grid: string) => void;
   setUserLocation: (lat: number, lng: number) => void;
   setUtcTime: (d: Date) => void;
   setLoading: (v: boolean) => void;

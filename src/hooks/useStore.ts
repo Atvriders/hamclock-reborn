@@ -11,6 +11,9 @@ import type {
 } from '../types';
 
 const CALLSIGN_KEY = 'hamclock_callsign';
+const GRID_KEY = 'hamclock_grid';
+const LAT_KEY = 'hamclock_lat';
+const LNG_KEY = 'hamclock_lng';
 const MAX_DX_SPOTS = 100;
 
 export const useStore = create<AppState>((set) => ({
@@ -25,8 +28,9 @@ export const useStore = create<AppState>((set) => ({
 
   // User settings
   callsign: localStorage.getItem(CALLSIGN_KEY) ?? '',
-  userLat: 40.0,
-  userLng: -74.0,
+  gridSquare: localStorage.getItem(GRID_KEY) ?? '',
+  userLat: parseFloat(localStorage.getItem(LAT_KEY) ?? '40.0'),
+  userLng: parseFloat(localStorage.getItem(LNG_KEY) ?? '-74.0'),
 
   // UI meta
   utcTime: new Date(),
@@ -48,7 +52,15 @@ export const useStore = create<AppState>((set) => ({
     localStorage.setItem(CALLSIGN_KEY, cs);
     set({ callsign: cs });
   },
-  setUserLocation: (lat: number, lng: number) => set({ userLat: lat, userLng: lng }),
+  setGridSquare: (grid: string) => {
+    localStorage.setItem(GRID_KEY, grid);
+    set({ gridSquare: grid });
+  },
+  setUserLocation: (lat: number, lng: number) => {
+    localStorage.setItem(LAT_KEY, String(lat));
+    localStorage.setItem(LNG_KEY, String(lng));
+    set({ userLat: lat, userLng: lng });
+  },
   setUtcTime: (d: Date) => set({ utcTime: d }),
   setLoading: (v: boolean) => set({ isLoading: v }),
   setError: (msg: string | null) => set({ error: msg }),
