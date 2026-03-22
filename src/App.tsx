@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import 'leaflet/dist/leaflet.css';
-import { useAppStore } from './store/useAppStore';
+import { useStore as useAppStore } from './hooks/useStore';
 import { useDataFetch } from './hooks/useDataFetch';
 import type { SolarData, BandConditions, DXSpot } from './types';
 
