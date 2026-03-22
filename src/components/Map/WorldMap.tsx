@@ -54,7 +54,7 @@ const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoo
 // ── Overlay URLs ─────────────────────────────────────────────────
 const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
 const AURORA_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg';
-const DRAP_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/animations/d-rap/global/d-rap/latest.png';
+const DRAP_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/d-rap/global.png';
 
 const WORLD_BOUNDS: L.LatLngBoundsExpression = [[-90, -180], [90, 180]];
 const NORTH_BOUNDS: L.LatLngBoundsExpression = [[0, -180], [90, 180]];
@@ -152,9 +152,10 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
         <Polygon
           positions={grayLine.dawn}
           pathOptions={{
-            color: 'transparent',
-            fillColor: '#ff6f00',
-            fillOpacity: 0.15,
+            color: '#ffab00',
+            weight: 1,
+            fillColor: '#ff8f00',
+            fillOpacity: 0.28,
             interactive: false,
           }}
         />
@@ -165,9 +166,10 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
         <Polygon
           positions={grayLine.dusk}
           pathOptions={{
-            color: 'transparent',
-            fillColor: '#ff6f00',
-            fillOpacity: 0.15,
+            color: '#ffab00',
+            weight: 1,
+            fillColor: '#ff8f00',
+            fillOpacity: 0.28,
             interactive: false,
           }}
         />

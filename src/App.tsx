@@ -21,10 +21,10 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
     if (this.state.error) {
       return (
         <div style={{ background: '#0a0e14', color: '#ff4444', padding: 40, fontFamily: 'monospace', height: '100vh' }}>
-          <h2 style={{ color: '#00ff88', marginBottom: 16 }}>HamClock Error</h2>
+          <h2 style={{ color: '#ffffff', marginBottom: 16 }}>HamClock Error</h2>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{this.state.error.message}</pre>
           <pre style={{ whiteSpace: 'pre-wrap', fontSize: 11, color: '#666', marginTop: 12 }}>{this.state.error.stack}</pre>
-          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 20, padding: '8px 16px', background: '#00ff88', color: '#0a0e14', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 20, padding: '8px 16px', background: '#00d4ff', color: '#0a0e14', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>
             Try Again
           </button>
         </div>
@@ -74,7 +74,7 @@ function AppInner() {
         gridTemplateColumns: '200px 1fr 240px',
         height: '100vh',
         background: '#0a0e14',
-        color: '#00ff41',
+        color: '#e0e0e0',
         fontFamily: "'Courier New', Consolas, monospace",
         overflow: 'hidden',
       }}
@@ -85,11 +85,11 @@ function AppInner() {
       </div>
 
       {/* Row 2, Col 1: Left sidebar — Solar Panel + Solar Image */}
-      <div style={{ borderRight: '1px solid #1a2a1a', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ borderRight: '1px solid #1a2332', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
         {solar ? (
           <SolarPanel data={solar} />
         ) : (
-          <div style={{ padding: 10, fontSize: 11, color: '#336633', fontStyle: 'italic' }}>
+          <div style={{ padding: 10, fontSize: 11, color: '#4a5568', fontStyle: 'italic' }}>
             Awaiting solar data...
           </div>
         )}
@@ -105,11 +105,11 @@ function AppInner() {
       />
 
       {/* Row 2, Col 3: Right sidebar — Band Conditions + DX Cluster + Satellites */}
-      <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1a2a1a', overflow: 'hidden' }}>
-        <div style={{ borderBottom: '1px solid #1a2a1a', overflow: 'hidden', flexShrink: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1a2332', overflow: 'hidden' }}>
+        <div style={{ borderBottom: '1px solid #1a2332', overflow: 'hidden', flexShrink: 0 }}>
           <BandPanel data={bands} />
         </div>
-        <div style={{ flex: 1, overflow: 'auto', borderBottom: '1px solid #1a2a1a' }}>
+        <div style={{ flex: 1, overflow: 'auto', borderBottom: '1px solid #1a2332' }}>
           <DXPanel spots={dxSpots} />
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 200 }}>

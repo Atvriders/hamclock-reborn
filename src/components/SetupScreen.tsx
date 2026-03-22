@@ -203,6 +203,8 @@ interface SetupScreenProps {
 export default function SetupScreen({ onComplete }: SetupScreenProps) {
   const [callsign, setCallsign] = useState('');
   const [grid, setGrid] = useState('');
+  const [autoGrid, setAutoGrid] = useState(''); // Grid auto-calculated from callsign prefix
+  const [userEditedGrid, setUserEditedGrid] = useState(false); // Whether the user has manually edited the grid
   const [country, setCountry] = useState('');
   const [lat, setLat] = useState<number | null>(null);
   const [lng, setLng] = useState<number | null>(null);
@@ -223,17 +225,21 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
         setCountry(result.country);
         setLat(result.lat);
         setLng(result.lng);
-        // Only auto-fill grid if user hasn't manually typed one
-        if (!grid) {
-          setGrid(coordsToGrid(result.lat, result.lng));
+        const calculatedGrid = coordsToGrid(result.lat, result.lng);
+        setAutoGrid(calculatedGrid);
+        // Only auto-fill grid if the user hasn't manually edited it
+        if (!userEditedGrid) {
+          setGrid(calculatedGrid);
         }
       }
     } else if (callsign.length > 0 && callsign.length >= 3) {
       setCallsignError('Invalid format (e.g. W1AW, VK3ABC)');
       setCountry('');
+      setAutoGrid('');
     } else {
       setCallsignError('');
       setCountry('');
+      setAutoGrid('');
     }
   }, [callsign]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -244,6 +250,12 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
   const handleGridChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.toUpperCase();
     setGrid(val);
+    // If user clears the grid, reset the flag so next callsign change re-auto-populates
+    if (val === '') {
+      setUserEditedGrid(false);
+    } else {
+      setUserEditedGrid(true);
+    }
     if (val.length >= 4 && !isValidGrid(val)) {
       setGridError('Invalid grid (e.g. FN31, EM73op)');
     } else {
@@ -317,7 +329,7 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
           value={grid}
           onChange={handleGridChange}
           onKeyDown={handleKeyDown}
-          placeholder="FN31"
+          placeholder={autoGrid || 'FN31'}
           maxLength={6}
           style={{ ...inputStyle, fontSize: 20 }}
           autoComplete="off"
@@ -346,9 +358,9 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
 
 const glowKeyframes = `
 @keyframes greenGlow {
-  0%   { box-shadow: 0 0 20px rgba(0, 255, 65, 0.15), 0 0 60px rgba(0, 255, 65, 0.05); }
-  50%  { box-shadow: 0 0 30px rgba(0, 255, 65, 0.3),  0 0 80px rgba(0, 255, 65, 0.1);  }
-  100% { box-shadow: 0 0 20px rgba(0, 255, 65, 0.15), 0 0 60px rgba(0, 255, 65, 0.05); }
+  0%   { box-shadow: 0 0 20px rgba(255, 255, 255, 0.08), 0 0 60px rgba(0, 212, 255, 0.05); }
+  50%  { box-shadow: 0 0 30px rgba(255, 255, 255, 0.15), 0 0 80px rgba(0, 212, 255, 0.08); }
+  100% { box-shadow: 0 0 20px rgba(255, 255, 255, 0.08), 0 0 60px rgba(0, 212, 255, 0.05); }
 }
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(20px); }
@@ -369,7 +381,7 @@ const overlayStyle: React.CSSProperties = {
 
 const cardStyle: React.CSSProperties = {
   background: '#0d1117',
-  border: '1px solid #00ff4140',
+  border: '1px solid rgba(255, 255, 255, 0.15)',
   borderRadius: 12,
   padding: '48px 44px 36px',
   width: 400,
@@ -415,14 +427,14 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "'Courier New', Consolas, monospace",
   fontWeight: 'bold',
   letterSpacing: 4,
-  color: '#00ff41',
+  color: '#ffffff',
   background: '#060a10',
-  border: '1px solid #1a3a1a',
+  border: '1px solid #2a3040',
   borderRadius: 6,
   outline: 'none',
   textAlign: 'center',
   textTransform: 'uppercase',
-  caretColor: '#00ff41',
+  caretColor: '#ffffff',
 };
 
 const errorStyle: React.CSSProperties = {
@@ -434,7 +446,7 @@ const errorStyle: React.CSSProperties = {
 
 const countryStyle: React.CSSProperties = {
   fontSize: 12,
-  color: '#44ff88',
+  color: '#00d4ff',
   marginTop: 4,
   height: 16,
   letterSpacing: 1,
@@ -442,7 +454,7 @@ const countryStyle: React.CSSProperties = {
 
 const coordStyle: React.CSSProperties = {
   fontSize: 11,
-  color: '#337744',
+  color: '#8899aa',
   marginTop: 4,
   height: 16,
 };
@@ -470,9 +482,9 @@ const skipButtonStyle: React.CSSProperties = {
   padding: '8px 16px',
   fontSize: 11,
   fontFamily: "'Courier New', Consolas, monospace",
-  color: '#336633',
+  color: '#8899aa',
   background: 'transparent',
-  border: '1px solid #1a2a1a',
+  border: '1px solid #2a3040',
   borderRadius: 4,
   cursor: 'pointer',
   letterSpacing: 1,

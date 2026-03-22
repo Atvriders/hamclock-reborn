@@ -12,6 +12,7 @@ const IMAGE_SOURCES = [
 type SourceId = typeof IMAGE_SOURCES[number]['id'];
 
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const IMAGE_LOAD_TIMEOUT_MS = 20_000; // 20 seconds
 
 // ── Theme ───────────────────────────────────────────────────────────
 const C = {
@@ -22,24 +23,38 @@ const C = {
   muted: '#4a5568',
   border: '#1a2332',
   text: '#8899aa',
+  red: '#ff4444',
 };
 
 // ── Component ───────────────────────────────────────────────────────
 const SolarImage: React.FC = () => {
   const [activeSource, setActiveSource] = useState<SourceId>('aia193');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   const [hovered, setHovered] = useState<SourceId | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const source = IMAGE_SOURCES.find((s) => s.id === activeSource)!;
+
+  // Build the image URL — use cache-busting only on refresh, not on every render
   const imageUrl = `${source.url}?t=${cacheBuster}`;
+
+  // Clear any pending load timeout
+  const clearLoadTimeout = useCallback(() => {
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
+    }
+  }, []);
 
   // Auto-refresh every 15 minutes
   const refresh = useCallback(() => {
     setCacheBuster(Date.now());
     setLoading(true);
+    setError(false);
   }, []);
 
   useEffect(() => {
@@ -49,12 +64,63 @@ const SolarImage: React.FC = () => {
     };
   }, [refresh]);
 
-  // Reset loading when source changes
+  // Reset loading/error when source changes
   useEffect(() => {
     setLoading(true);
+    setError(false);
   }, [activeSource]);
 
+  // Set a timeout so we don't spin forever if the image silently fails
+  useEffect(() => {
+    clearLoadTimeout();
+    if (loading) {
+      loadTimeoutRef.current = setTimeout(() => {
+        setLoading(false);
+        setError(true);
+      }, IMAGE_LOAD_TIMEOUT_MS);
+    }
+    return clearLoadTimeout;
+  }, [loading, cacheBuster, activeSource, clearLoadTimeout]);
+
+  const handleImageLoad = useCallback(() => {
+    clearLoadTimeout();
+    setLoading(false);
+    setError(false);
+  }, [clearLoadTimeout]);
+
+  const handleImageError = useCallback(() => {
+    clearLoadTimeout();
+    setLoading(false);
+    setError(true);
+  }, [clearLoadTimeout]);
+
   const imgSize = 160;
+
+  // Error / placeholder fallback
+  const ErrorPlaceholder: React.FC<{ size: number }> = ({ size }) => (
+    <div
+      style={{
+        width: size,
+        height: size,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: C.bg,
+        color: C.muted,
+        fontFamily: "'Courier New', Courier, monospace",
+        fontSize: Math.max(10, size / 16),
+        textAlign: 'center',
+        padding: 8,
+      }}
+    >
+      <div style={{ fontSize: Math.max(20, size / 6), marginBottom: 6, opacity: 0.5 }}>&#9788;</div>
+      <div>NO IMAGE</div>
+      <div style={{ fontSize: Math.max(8, size / 22), marginTop: 4, color: C.muted }}>
+        Tap to retry
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -70,14 +136,22 @@ const SolarImage: React.FC = () => {
             height: imgSize,
             margin: '0 auto 8px',
             borderRadius: '50%',
-            border: `2px solid ${C.green}`,
-            boxShadow: `0 0 12px ${C.green}44, 0 0 4px ${C.green}22`,
+            border: `2px solid ${error ? C.red : C.green}`,
+            boxShadow: error
+              ? `0 0 12px ${C.red}44, 0 0 4px ${C.red}22`
+              : `0 0 12px ${C.green}44, 0 0 4px ${C.green}22`,
             overflow: 'hidden',
             background: C.bg,
             cursor: 'pointer',
           }}
-          onClick={() => setExpanded(true)}
-          title="Click to expand"
+          onClick={() => {
+            if (error) {
+              refresh();
+            } else {
+              setExpanded(true);
+            }
+          }}
+          title={error ? 'Click to retry' : 'Click to expand'}
         >
           {/* Loading spinner */}
           {loading && (
@@ -86,22 +160,33 @@ const SolarImage: React.FC = () => {
             </div>
           )}
 
+          {/* Error placeholder */}
+          {error && !loading && <ErrorPlaceholder size={imgSize} />}
+
+          {/* The actual image — always rendered so it can attempt loading */}
           <img
             src={imageUrl}
             alt={source.desc}
+            crossOrigin="anonymous"
+            referrerPolicy="no-referrer"
             style={{
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              display: loading ? 'none' : 'block',
+              display: loading || error ? 'none' : 'block',
             }}
-            onLoad={() => setLoading(false)}
-            onError={() => setLoading(false)}
+            onLoad={handleImageLoad}
+            onError={handleImageError}
           />
         </div>
 
         {/* Source description */}
-        <div style={descStyle}>{source.desc}</div>
+        <div style={descStyle}>
+          {source.desc}
+          {error && (
+            <span style={{ color: C.red, marginLeft: 6, fontSize: 8 }}>[OFFLINE]</span>
+          )}
+        </div>
 
         {/* Selector buttons */}
         <div style={selectorRowStyle}>
@@ -117,7 +202,7 @@ const SolarImage: React.FC = () => {
                 title={src.desc}
                 style={{
                   background: isActive ? C.green : isHovered ? C.greenDim : 'transparent',
-                  color: isActive ? C.bg : C.green,
+                  color: isActive ? C.bg : '#e0e0e0',
                   border: `1px solid ${isActive ? C.green : C.border}`,
                   borderRadius: 3,
                   padding: '2px 6px',
@@ -157,20 +242,27 @@ const SolarImage: React.FC = () => {
               </button>
             </div>
             <div style={modalImageWrapperStyle}>
-              <img
-                src={imageUrl}
-                alt={source.desc}
-                style={{
-                  width: 512,
-                  height: 512,
-                  maxWidth: '80vw',
-                  maxHeight: '80vh',
-                  borderRadius: '50%',
-                  border: `3px solid ${C.green}`,
-                  boxShadow: `0 0 30px ${C.green}44, 0 0 10px ${C.green}22`,
-                  objectFit: 'cover',
-                }}
-              />
+              {error ? (
+                <ErrorPlaceholder size={400} />
+              ) : (
+                <img
+                  src={imageUrl}
+                  alt={source.desc}
+                  crossOrigin="anonymous"
+                  referrerPolicy="no-referrer"
+                  style={{
+                    width: 512,
+                    height: 512,
+                    maxWidth: '80vw',
+                    maxHeight: '80vh',
+                    borderRadius: '50%',
+                    border: `3px solid ${C.green}`,
+                    boxShadow: `0 0 30px ${C.green}44, 0 0 10px ${C.green}22`,
+                    objectFit: 'cover',
+                  }}
+                  onError={handleImageError}
+                />
+              )}
             </div>
             {/* Modal selectors */}
             <div style={{ ...selectorRowStyle, marginTop: 12, justifyContent: 'center' }}>
@@ -182,7 +274,7 @@ const SolarImage: React.FC = () => {
                     onClick={() => setActiveSource(src.id)}
                     style={{
                       background: isActive ? C.green : 'transparent',
-                      color: isActive ? C.bg : C.green,
+                      color: isActive ? C.bg : '#e0e0e0',
                       border: `1px solid ${isActive ? C.green : C.border}`,
                       borderRadius: 3,
                       padding: '4px 10px',
@@ -218,7 +310,7 @@ const containerStyle: React.CSSProperties = {
 };
 
 const titleStyle: React.CSSProperties = {
-  color: C.green,
+  color: '#ffffff',
   fontSize: 10,
   fontWeight: 'bold',
   letterSpacing: 2,
@@ -295,7 +387,7 @@ const modalTitleStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  color: C.green,
+  color: '#ffffff',
   fontSize: 13,
   fontWeight: 'bold',
   fontFamily: "'Courier New', Courier, monospace",

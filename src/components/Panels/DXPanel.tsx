@@ -103,7 +103,7 @@ const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
               transition: 'background 0.15s',
             }}
             onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = 'rgba(0, 255, 136, 0.05)';
+              (e.currentTarget as HTMLDivElement).style.background = 'rgba(255, 255, 255, 0.05)';
             }}
             onMouseLeave={(e) => {
               (e.currentTarget as HTMLDivElement).style.background = 'transparent';
