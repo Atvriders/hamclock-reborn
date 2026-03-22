@@ -341,6 +341,7 @@ function BaseTileLayer({ mapStyle }: { mapStyle: MapStyle }) {
       subdomains: cfg.subdomains || 'abc',
       maxZoom: cfg.maxZoom,
       noWrap: true,
+      detectRetina: false,
     });
     layer.addTo(map);
     // Make sure it's below all overlays

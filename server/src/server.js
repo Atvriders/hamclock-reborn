@@ -542,18 +542,26 @@ app.get('/api/solar/proxy/:type', async (req, res) => {
   if (!url) return res.status(404).json({ error: 'Unknown image type' });
 
   try {
-    const response = await fetch(url);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000); // 15s — NASA can be slow
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Type', response.headers.get('content-type') || 'image/jpeg');
     res.setHeader('Cache-Control', 'public, max-age=600'); // 10 min cache
 
     // Pipe the image data through
     const buffer = await response.arrayBuffer();
     res.send(Buffer.from(buffer));
   } catch (err) {
-    console.error('[solar-proxy] Failed to proxy:', err.message);
-    res.status(502).json({ error: 'Failed to fetch solar image' });
+    const isAbort = err.name === 'AbortError';
+    console.error(`[solar-proxy] Failed to proxy ${req.params.type}: ${isAbort ? 'Request timed out (15s)' : err.message}`);
+    res.status(502).json({
+      error: 'Failed to fetch solar image',
+      detail: isAbort ? 'Upstream request to NASA SDO timed out' : err.message,
+    });
   }
 });
 
