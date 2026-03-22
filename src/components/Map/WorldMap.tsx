@@ -32,7 +32,7 @@ type MapStyle = 'dark' | 'satellite' | 'terrain' | 'light';
 
 const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoom: number; attribution?: string }> = {
   dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
     subdomains: 'abcd',
     maxZoom: 19,
   },
@@ -46,7 +46,7 @@ const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoo
     maxZoom: 17,
   },
   light: {
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
     subdomains: 'abcd',
     maxZoom: 19,
   },
