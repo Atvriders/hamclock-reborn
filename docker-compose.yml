@@ -18,6 +18,9 @@ services:
     ports:
       - "3013:3013"
     restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     networks:
       - hamclock
 

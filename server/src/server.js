@@ -411,16 +411,16 @@ async function fetchMufMap() {
 }
 
 async function fetchDrapMap() {
-  const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/d-region-absorption-predictions.json';
-
-  const frames = await safeFetchJson(NOAA_URL);
-  if (Array.isArray(frames) && frames.length > 0) {
-    const latest = frames[frames.length - 1];
-    const imageUrl = `https://services.swpc.noaa.gov/${latest.url}`;
-    return { imageUrl, timestamp: latest.time_tag || new Date().toISOString() };
-  }
-
-  throw new Error('No DRAP animation frames returned');
+  // Use direct DRAP image URL (the animations JSON endpoint returns 404)
+  const imageUrl = 'https://services.swpc.noaa.gov/images/animations/d-rap/global/d-rap/latest.png';
+  // Verify it's reachable
+  try {
+    const res = await safeFetch(imageUrl);
+    if (res.ok) return { imageUrl, timestamp: new Date().toISOString() };
+  } catch { /* fall through */ }
+  // Fallback: try alternate URL
+  const alt = 'https://services.swpc.noaa.gov/images/d-rap-global.png';
+  return { imageUrl: alt, timestamp: new Date().toISOString() };
 }
 
 async function fetchAuroraMap() {
@@ -478,16 +478,14 @@ async function fetchSolarImages() {
 }
 
 async function fetchFoF2Map() {
-  const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-fof2.json';
-
-  const frames = await safeFetchJson(NOAA_URL);
-  if (Array.isArray(frames) && frames.length > 0) {
-    const latest = frames[frames.length - 1];
-    const imageUrl = `https://services.swpc.noaa.gov/${latest.url}`;
-    return { imageUrl, timestamp: latest.time_tag || new Date().toISOString() };
-  }
-
-  throw new Error('No foF2 animation frames returned');
+  // Use direct foF2 image URL (the animations JSON endpoint returns 404)
+  const imageUrl = 'https://services.swpc.noaa.gov/images/animations/ctipe/fof2/latest.png';
+  try {
+    const res = await safeFetch(imageUrl);
+    if (res.ok) return { imageUrl, timestamp: new Date().toISOString() };
+  } catch { /* fall through */ }
+  // If not available, return null — foF2 is less critical
+  return { imageUrl: null, timestamp: new Date().toISOString() };
 }
 
 // ---------------------------------------------------------------------------
