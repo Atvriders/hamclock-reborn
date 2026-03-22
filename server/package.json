@@ -1,0 +1,17 @@
+{
+  "name": "hamclock-reborn-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "satellite.js": "^5.0.0",
+    "xml2js": "^0.6.2"
+  }
+}
