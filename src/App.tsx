@@ -1,8 +1,28 @@
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import 'leaflet/dist/leaflet.css';
 import { useStore as useAppStore } from './hooks/useStore';
 import { useDataFetch } from './hooks/useDataFetch';
 import type { SolarData, BandConditions, DXSpot } from './types';
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ background: '#0a0e14', color: '#ff4444', padding: 40, fontFamily: 'monospace', height: '100vh' }}>
+          <h2 style={{ color: '#00ff88', marginBottom: 16 }}>HamClock Error</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 13 }}>{this.state.error.message}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 11, color: '#666', marginTop: 12 }}>{this.state.error.stack}</pre>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 20, padding: '8px 16px', background: '#00ff88', color: '#0a0e14', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ── Placeholder sub-components ──────────────────────────────────────
 // Each will become its own file under components/ in later steps.
@@ -32,9 +52,9 @@ function SolarPanel({ solar }: { solar: SolarData | null }) {
       <Row label="SSN" value={solar.ssn} />
       <Row label="Kp" value={solar.kp} />
       <Row label="A-index" value={solar.aIndex} />
-      <Row label="X-ray" value={solar.xray.classification} />
-      <Row label="Wind" value={`${solar.solarWind.speed} km/s`} />
-      {solar.solarWind.bz != null && <Row label="Bz" value={`${solar.solarWind.bz} nT`} />}
+      <Row label="X-ray" value={solar.xray?.classification ?? '—'} />
+      <Row label="Wind" value={solar.solarWind ? `${solar.solarWind.speed} km/s` : '—'} />
+      {solar.solarWind?.bz != null && <Row label="Bz" value={`${solar.solarWind.bz} nT`} />}
       {solar.geomagField && <Row label="Storm" value={solar.geomagField.stormLevel} />}
     </PanelShell>
   );
@@ -43,7 +63,7 @@ function SolarPanel({ solar }: { solar: SolarData | null }) {
 function BandPanel({ bands }: { bands: BandConditions | null }) {
   if (!bands) return <PanelShell title="Band Conditions"><Dim>Awaiting data...</Dim></PanelShell>;
 
-  const entries = Object.entries(bands.conditions);
+  const entries = Object.entries(bands.conditions || {});
 
   return (
     <PanelShell title="Band Conditions">
@@ -93,7 +113,7 @@ function WorldMap() {
 
 function PropagationBar({ bands, solar }: { bands: BandConditions | null; solar: SolarData | null }) {
   const openBands = bands
-    ? Object.entries(bands.conditions)
+    ? Object.entries(bands.conditions || {})
         .filter(([, cond]) => cond.day === 'Good' || cond.day === 'Fair')
         .map(([band]) => band)
     : [];
@@ -172,7 +192,7 @@ const propagationBarStyle: React.CSSProperties = {
 
 // ── App ──────────────────────────────────────────────────────────────
 
-export default function App() {
+function AppInner() {
   const callsign = useAppStore((s) => s.callsign);
   const solar = useAppStore((s) => s.solar);
   const bands = useAppStore((s) => s.bands);
@@ -226,4 +246,8 @@ export default function App() {
       <PropagationBar bands={bands} solar={solar} />
     </div>
   );
+}
+
+export default function App() {
+  return <ErrorBoundary><AppInner /></ErrorBoundary>;
 }
