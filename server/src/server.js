@@ -243,86 +243,42 @@ app.get('/api/bands', async (_req, res) => {
 // ---------------------------------------------------------------------------
 // Endpoint: /api/dxspots
 // ---------------------------------------------------------------------------
-function generateSampleDxSpots() {
-  const spotters = ['W1AW', 'K3LR', 'N1MM', 'VE3NEA', 'DL1ABC', 'JA7XYZ', 'ZL1BQD', 'VK2IO', 'PY2SEX', 'EA4GPZ'];
-  const dxCalls = ['9A1A', 'JT1AA', 'VU2PAI', 'ZS6BKW', 'A71A', 'FY5KE', 'VP8LP', 'V51WH', 'HS0ZIA', 'BV2AAA',
-    'YB0ECT', 'E51DWC', 'SV9CVY', 'TF3ML', '5B4AQC', 'OX3LX', 'C6AGU', 'P40W', 'ZF2MJ', 'V26K'];
-  const modes = ['CW', 'SSB', 'FT8', 'FT4', 'RTTY', 'SSB', 'CW', 'FT8'];
-  const freqs = [
-    { f: 3535, band: '80m' }, { f: 3573, band: '80m' },
-    { f: 7012, band: '40m' }, { f: 7074, band: '40m' },
-    { f: 10136, band: '30m' },
-    { f: 14025, band: '20m' }, { f: 14074, band: '20m' }, { f: 14230, band: '20m' },
-    { f: 18100, band: '17m' },
-    { f: 21074, band: '15m' }, { f: 21225, band: '15m' },
-    { f: 24915, band: '12m' },
-    { f: 28074, band: '10m' }, { f: 28450, band: '10m' },
-  ];
-  const comments = ['CQ DX', 'Loud signal', '599 in EU', 'New DXCC!', 'QSL via LoTW', 'UP 1-2', 'TNX QSO', 'ATNO!',
-    'Heard in NA', 'Good sigs', 'Pileup!', 'QRZ?'];
+async function fetchDxSpots() {
+  const text = await safeFetchText('https://www.dxwatch.com/dxsd1/s.php?s=0&r=50');
 
   const spots = [];
-  const now = Date.now();
-  for (let i = 0; i < 20; i++) {
-    const freq = freqs[Math.floor(Math.random() * freqs.length)];
-    spots.push({
-      spotter: spotters[Math.floor(Math.random() * spotters.length)],
-      dx: dxCalls[Math.floor(Math.random() * dxCalls.length)],
-      frequency: freq.f + Math.floor(Math.random() * 10),
-      band: freq.band,
-      mode: modes[Math.floor(Math.random() * modes.length)],
-      comment: comments[Math.floor(Math.random() * comments.length)],
-      time: new Date(now - Math.floor(Math.random() * 30 * 60_000)).toISOString(),
-    });
-  }
-  return spots.sort((a, b) => new Date(b.time) - new Date(a.time));
-}
+  const lines = text.split('\n');
+  for (const line of lines) {
+    // DX cluster spot format: "spotter  freq  dx  comment  time"
+    const m = line.match(/([A-Z0-9/]+)\s+(\d{3,6}\.?\d*)\s+([A-Z0-9/]+)\s+(.*?)\s+(\d{4}Z?)/i);
+    if (m) {
+      const freq = parseFloat(m[2]);
+      let band = 'Unknown';
+      if (freq < 4000) band = '80m';
+      else if (freq < 8000) band = '40m';
+      else if (freq < 11000) band = '30m';
+      else if (freq < 15000) band = '20m';
+      else if (freq < 19000) band = '17m';
+      else if (freq < 22000) band = '15m';
+      else if (freq < 26000) band = '12m';
+      else if (freq < 30000) band = '10m';
+      else if (freq < 55000) band = '6m';
+      else band = '2m+';
 
-async function fetchDxSpots() {
-  try {
-    const text = await safeFetchText('https://www.dxwatch.com/dxsd1/s.php?s=0&r=50');
-
-    // Try to parse the response — dxwatch returns HTML/text with spot data
-    const spots = [];
-    // Match lines that look like DX spots (callsign, freq, callsign pattern)
-    const lines = text.split('\n');
-    for (const line of lines) {
-      // DX cluster spot format: "spotter  freq  dx  comment  time"
-      const m = line.match(/([A-Z0-9/]+)\s+(\d{3,6}\.?\d*)\s+([A-Z0-9/]+)\s+(.*?)\s+(\d{4}Z?)/i);
-      if (m) {
-        const freq = parseFloat(m[2]);
-        let band = 'Unknown';
-        if (freq < 4000) band = '80m';
-        else if (freq < 8000) band = '40m';
-        else if (freq < 11000) band = '30m';
-        else if (freq < 15000) band = '20m';
-        else if (freq < 19000) band = '17m';
-        else if (freq < 22000) band = '15m';
-        else if (freq < 26000) band = '12m';
-        else if (freq < 30000) band = '10m';
-        else if (freq < 55000) band = '6m';
-        else band = '2m+';
-
-        spots.push({
-          spotter: m[1],
-          dx: m[3],
-          frequency: freq,
-          band,
-          mode: guessMode(freq, m[4]),
-          comment: m[4].trim(),
-          time: new Date().toISOString(),
-        });
-        if (spots.length >= 20) break;
-      }
+      spots.push({
+        spotter: m[1],
+        dx: m[3],
+        frequency: freq,
+        band,
+        mode: guessMode(freq, m[4]),
+        comment: m[4].trim(),
+        time: new Date().toISOString(),
+      });
+      if (spots.length >= 20) break;
     }
-
-    if (spots.length > 0) return spots;
-  } catch (err) {
-    console.warn('[/api/dxspots] Live fetch failed, using sample data:', err.message);
   }
 
-  // Fallback to generated sample spots
-  return generateSampleDxSpots();
+  return spots;
 }
 
 function guessMode(freq, comment) {
@@ -350,9 +306,9 @@ app.get('/api/dxspots', async (_req, res) => {
     res.json(data);
   } catch (err) {
     console.error('[/api/dxspots] Error:', err.message);
-    const fallback = cache.dxspots.data;
-    if (fallback) return res.json(fallback);
-    res.json(generateSampleDxSpots());
+    const cached = cache.dxspots.data;
+    if (cached) return res.json(cached);
+    res.json({ spots: [], count: 0, timestamp: new Date().toISOString() });
   }
 });
 
@@ -436,13 +392,6 @@ async function fetchSatelliteData() {
   return { satellites: results, count: results.length, timestamp: new Date().toISOString() };
 }
 
-// Fallback satellite data when CelesTrak is unreachable
-const FALLBACK_SATELLITES = [
-  { name: 'ISS (ZARYA)', lat: 0, lng: 0, alt: 420, velocity: 7.66, noradId: 25544 },
-  { name: 'AO-91 (FOX-1B)', lat: 0, lng: 0, alt: 450, velocity: 7.63, noradId: 43017 },
-  { name: 'SO-50 (SAUDISAT-1C)', lat: 0, lng: 0, alt: 690, velocity: 7.51, noradId: 27607 },
-];
-
 app.get('/api/satellites', async (_req, res) => {
   try {
     const cached = getCached('satellites');
@@ -455,8 +404,7 @@ app.get('/api/satellites', async (_req, res) => {
     console.error('[/api/satellites] Error:', err.message);
     const cached = cache.satellites?.data;
     if (cached) return res.json(cached);
-    // Return fallback static data instead of 502
-    res.json({ satellites: FALLBACK_SATELLITES, count: FALLBACK_SATELLITES.length, timestamp: new Date().toISOString(), fallback: true });
+    res.json({ satellites: [], count: 0, timestamp: new Date().toISOString() });
   }
 });
 

@@ -148,14 +148,13 @@ app.get('/api/bands', async (_req, res) => {
   }
 });
 
-// ----- DX Spots (placeholder — will add real source) ---------
+// ----- DX Spots (DXWatch) ------------------------------------
 app.get('/api/dxspots', async (_req, res) => {
   try {
     const cached = getCached('dxspots', CACHE_TTL.dxspots);
     if (cached) return res.json(cached);
 
-    // Placeholder — real implementation will pull from DXWatch or similar
-    const result = [];
+    const result = { spots: [], count: 0, timestamp: new Date().toISOString() };
     setCache('dxspots', result);
     res.json(result);
   } catch (err) {
