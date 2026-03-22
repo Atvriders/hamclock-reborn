@@ -53,11 +53,12 @@ const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoo
 };
 
 // ── Overlay URLs ─────────────────────────────────────────────────
-const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
+const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.png';
 const AURORA_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg';
 const DRAP_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/d-rap/global.png';
 
 const WORLD_BOUNDS: L.LatLngBoundsExpression = [[-90, -180], [90, 180]];
+const MUF_BOUNDS: L.LatLngBoundsExpression = [[-80, -180], [80, 180]];
 const NORTH_BOUNDS: L.LatLngBoundsExpression = [[0, -180], [90, 180]];
 
 // ── Props ─────────────────────────────────────────────────────────
@@ -612,7 +613,7 @@ export default function WorldMap({
         {layers.muf && (
           <ImageOverlay
             url={mufUrl}
-            bounds={WORLD_BOUNDS}
+            bounds={MUF_BOUNDS}
             opacity={0.35}
             interactive={false}
             className="muf-overlay"

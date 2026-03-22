@@ -117,27 +117,34 @@ function parseBandConditions(xml) {
   return { day: dayConditions, night: nightConditions };
 }
 
-// Classify X-ray flux into solar flare class
+// Classify X-ray flux into solar flare class (e.g. "C2.3", "M1.5")
 function classifyXray(flux) {
   if (flux == null) return 'N/A';
   const v = typeof flux === 'string' ? parseFloat(flux) : flux;
-  if (v >= 1e-4) return 'X';
-  if (v >= 1e-5) return 'M';
-  if (v >= 1e-6) return 'C';
-  if (v >= 1e-7) return 'B';
-  return 'A';
+  if (isNaN(v) || v <= 0) return 'A0.0';
+
+  let cls, threshold;
+  if (v >= 1e-4)      { cls = 'X'; threshold = 1e-4; }
+  else if (v >= 1e-5) { cls = 'M'; threshold = 1e-5; }
+  else if (v >= 1e-6) { cls = 'C'; threshold = 1e-6; }
+  else if (v >= 1e-7) { cls = 'B'; threshold = 1e-7; }
+  else                { cls = 'A'; threshold = 1e-8; }
+
+  const level = (v / threshold).toFixed(1);
+  return `${cls}${level}`;
 }
 
 // ---------------------------------------------------------------------------
 // Endpoint: /api/solar
 // ---------------------------------------------------------------------------
 async function fetchSolarData() {
-  const [kpData, sfiData, ssnData, solarWindData, xrayData] = await Promise.allSettled([
+  const [kpData, sfiData, ssnData, solarWindData, xrayData, hamqslData] = await Promise.allSettled([
     safeFetchJson('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json'),
     safeFetchJson('https://services.swpc.noaa.gov/json/f107_cm_flux.json'),
     safeFetchJson('https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json'),
     safeFetchJson('https://services.swpc.noaa.gov/products/summary/solar-wind-speed.json'),
     safeFetchJson('https://services.swpc.noaa.gov/json/goes/primary/xrays-6-hour.json'),
+    safeFetchText('https://www.hamqsl.com/solarxml.php'),
   ]);
 
   // Kp — last entry, column index 1 is the Kp value
@@ -173,18 +180,48 @@ async function fetchSolarData() {
     };
   }
 
-  // X-ray flux — last entry
+  // X-ray flux — last entry from GOES xrays-6-hour feed
   let xray = null;
   if (xrayData.status === 'fulfilled' && Array.isArray(xrayData.value) && xrayData.value.length > 0) {
     const last = xrayData.value[xrayData.value.length - 1];
     const flux = last.flux ?? last.current_flux ?? null;
-    xray = {
-      flux,
-      class: classifyXray(flux),
-    };
+    if (flux != null) {
+      const fluxNum = typeof flux === 'string' ? parseFloat(flux) : flux;
+      xray = {
+        flux: fluxNum,
+        classification: classifyXray(fluxNum),
+      };
+    }
   }
 
-  return { kp, sfi, ssn, solarWind, xray, timestamp: new Date().toISOString() };
+  // A-Index from HamQSL XML feed
+  let aIndex = null;
+  if (hamqslData.status === 'fulfilled' && hamqslData.value) {
+    const aVal = xmlVal(hamqslData.value, 'aindex');
+    if (aVal) aIndex = parseInt(aVal, 10);
+    // If SFI was not found from NOAA, try hamqsl as fallback
+    if (sfi == null) {
+      const sfiVal = xmlVal(hamqslData.value, 'solarflux');
+      if (sfiVal) sfi = parseInt(sfiVal, 10);
+    }
+    // If SSN was not found from NOAA, try hamqsl as fallback
+    if (ssn == null) {
+      const ssnVal = xmlVal(hamqslData.value, 'sunspots');
+      if (ssnVal) ssn = parseInt(ssnVal, 10);
+    }
+    // If X-ray was not found from GOES, try hamqsl as fallback
+    if (xray == null) {
+      const xrayVal = xmlVal(hamqslData.value, 'xray');
+      if (xrayVal) {
+        xray = {
+          flux: null,
+          classification: xrayVal,
+        };
+      }
+    }
+  }
+
+  return { kp, sfi, ssn, aIndex, solarWind, xray, timestamp: new Date().toISOString() };
 }
 
 app.get('/api/solar', async (_req, res) => {
@@ -418,7 +455,7 @@ app.get('/api/satellites', async (_req, res) => {
 // ---------------------------------------------------------------------------
 async function fetchMufMap() {
   const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-muf.json';
-  const KC2G_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
+  const KC2G_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.png';
 
   try {
     const frames = await safeFetchJson(NOAA_URL);
