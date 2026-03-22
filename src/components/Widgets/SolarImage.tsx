@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── SDO Image Sources ───────────────────────────────────────────────
+// Load directly from NASA SDO — they serve CORS headers (Access-Control-Allow-Origin: *)
 const IMAGE_SOURCES = [
-  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: '/api/solar/proxy/aia193' },
-  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: '/api/solar/proxy/aia304' },
-  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: '/api/solar/proxy/aia171' },
-  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: '/api/solar/proxy/hmi-mag' },
-  { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: '/api/solar/proxy/hmi-int' },
+  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg' },
+  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0304.jpg' },
+  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0171.jpg' },
+  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIBC.jpg' },
+  { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg' },
 ] as const;
 
 type SourceId = typeof IMAGE_SOURCES[number]['id'];
