@@ -63,6 +63,9 @@ export function gridToLatLng(grid: string): { lat: number; lng: number } | null 
  *   (41.7, -72.4) → "FN31pr"
  */
 export function latLngToGrid(lat: number, lng: number): string {
+  // Clamp to valid ranges
+  lat = Math.max(-90, Math.min(90, lat));
+  lng = Math.max(-180, Math.min(180, lng));
   // Shift origin so values are positive
   let adjLng = lng + 180;
   let adjLat = lat + 90;
