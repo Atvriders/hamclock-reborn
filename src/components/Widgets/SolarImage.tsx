@@ -41,6 +41,7 @@ const IMAGE_SOURCES = [
     urls: [
       '/api/solar/proxy/hmi-mag',
       'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIBC.jpg',
+      'https://soho.nascom.nasa.gov/data/realtime/hmi_mag/512/latest.jpg',
     ],
   },
   {
@@ -50,6 +51,7 @@ const IMAGE_SOURCES = [
     urls: [
       '/api/solar/proxy/hmi-int',
       'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg',
+      'https://soho.nascom.nasa.gov/data/realtime/hmi_igr/512/latest.jpg',
     ],
   },
 ] as const;
