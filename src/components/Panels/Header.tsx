@@ -7,6 +7,7 @@ interface HeaderProps {
 
 const COLORS = {
   bg: '#0a0e14',
+  primary: '#ffffff',
   green: '#00ff88',
   cyan: '#00d4ff',
   muted: '#4a5568',
@@ -69,7 +70,7 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
       {/* Left: Title + Callsign */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 280 }}>
         <span style={{
-          color: COLORS.green,
+          color: COLORS.primary,
           fontSize: 16,
           fontWeight: 'bold',
           letterSpacing: 2,
@@ -89,8 +90,8 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
             }}
             style={{
               background: '#111820',
-              border: `1px solid ${COLORS.green}`,
-              color: COLORS.green,
+              border: `1px solid ${COLORS.cyan}`,
+              color: COLORS.primary,
               fontFamily: "'Courier New', Courier, monospace",
               fontSize: 13,
               padding: '2px 6px',
@@ -120,7 +121,7 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
       {/* Center: UTC Clock */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <span style={{
-          color: COLORS.green,
+          color: COLORS.primary,
           fontSize: 26,
           fontWeight: 'bold',
           letterSpacing: 3,

@@ -384,14 +384,14 @@ const titleStyle: React.CSSProperties = {
   fontSize: 28,
   fontWeight: 'bold',
   letterSpacing: 6,
-  color: '#00ff41',
+  color: '#ffffff',
   marginBottom: 6,
-  textShadow: '0 0 20px rgba(0,255,65,0.4)',
+  textShadow: '0 0 20px rgba(255,255,255,0.2)',
 };
 
 const subtitleStyle: React.CSSProperties = {
   fontSize: 13,
-  color: '#33aa55',
+  color: '#8899aa',
   letterSpacing: 2,
   marginBottom: 36,
   textTransform: 'uppercase',
@@ -401,7 +401,7 @@ const labelStyle: React.CSSProperties = {
   fontSize: 10,
   fontWeight: 'bold',
   letterSpacing: 3,
-  color: '#00ff41',
+  color: '#e0e0e0',
   alignSelf: 'flex-start',
   marginBottom: 6,
   textTransform: 'uppercase',

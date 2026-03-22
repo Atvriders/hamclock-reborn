@@ -7,6 +7,7 @@ interface BandPanelProps {
 
 const COLORS = {
   bgPanel: '#0d1117',
+  primary: '#ffffff',
   green: '#00ff88',
   amber: '#ffb800',
   red: '#ff4444',
@@ -69,7 +70,7 @@ const BandPanel: React.FC<BandPanelProps> = ({ data }) => {
     }}>
       {/* Header */}
       <div style={{
-        color: COLORS.green,
+        color: COLORS.primary,
         fontSize: 11,
         fontWeight: 'bold',
         letterSpacing: 1.5,

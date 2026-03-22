@@ -359,7 +359,7 @@ function LayerControlPanel({
         cursor: 'pointer',
         fontSize: '11px',
         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-        color: layers[key] ? '#39ff14' : 'rgba(255,255,255,0.55)',
+        color: layers[key] ? '#ffffff' : 'rgba(255,255,255,0.55)',
         transition: 'color 0.15s',
         userSelect: 'none',
       }}
@@ -375,8 +375,8 @@ function LayerControlPanel({
           width: 14,
           height: 14,
           borderRadius: 3,
-          border: layers[key] ? '1.5px solid #39ff14' : '1.5px solid rgba(255,255,255,0.3)',
-          background: layers[key] ? 'rgba(57,255,20,0.15)' : 'transparent',
+          border: layers[key] ? '1.5px solid #00d4ff' : '1.5px solid rgba(255,255,255,0.3)',
+          background: layers[key] ? 'rgba(0,212,255,0.15)' : 'transparent',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -400,10 +400,10 @@ function LayerControlPanel({
         padding: '3px 7px',
         fontSize: '10px',
         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-        border: mapStyle === style ? '1px solid #39ff14' : '1px solid rgba(255,255,255,0.2)',
+        border: mapStyle === style ? '1px solid #00d4ff' : '1px solid rgba(255,255,255,0.2)',
         borderRadius: 3,
-        background: mapStyle === style ? 'rgba(57,255,20,0.15)' : 'rgba(255,255,255,0.05)',
-        color: mapStyle === style ? '#39ff14' : 'rgba(255,255,255,0.6)',
+        background: mapStyle === style ? 'rgba(0,212,255,0.15)' : 'rgba(255,255,255,0.05)',
+        color: mapStyle === style ? '#ffffff' : 'rgba(255,255,255,0.6)',
         cursor: 'pointer',
         transition: 'all 0.15s',
       }}
@@ -422,11 +422,11 @@ function LayerControlPanel({
         background: 'rgba(10, 14, 10, 0.82)',
         backdropFilter: 'blur(12px)',
         WebkitBackdropFilter: 'blur(12px)',
-        border: '1px solid rgba(57,255,20,0.25)',
+        border: '1px solid rgba(255,255,255,0.2)',
         borderRadius: 8,
         padding: collapsed ? '6px 10px' : '10px 14px',
         minWidth: collapsed ? 'auto' : 170,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(57,255,20,0.08)',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)',
         color: '#eee',
         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       }}
@@ -448,7 +448,7 @@ function LayerControlPanel({
             fontWeight: 700,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: '#39ff14',
+            color: '#ffffff',
             opacity: 0.8,
           }}
         >
@@ -486,7 +486,7 @@ function LayerControlPanel({
           <div
             style={{
               height: 1,
-              background: 'rgba(57,255,20,0.15)',
+              background: 'rgba(255,255,255,0.1)',
               margin: '8px 0',
             }}
           />

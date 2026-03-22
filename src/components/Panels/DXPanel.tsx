@@ -8,6 +8,7 @@ interface DXPanelProps {
 
 const COLORS = {
   bgPanel: '#0d1117',
+  primary: '#ffffff',
   green: '#00ff88',
   muted: '#4a5568',
   border: '#1a2332',
@@ -73,7 +74,7 @@ const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
         borderBottom: `1px solid ${COLORS.border}`,
       }}>
         <span style={{
-          color: COLORS.green,
+          color: COLORS.primary,
           fontSize: 11,
           fontWeight: 'bold',
           letterSpacing: 1.5,

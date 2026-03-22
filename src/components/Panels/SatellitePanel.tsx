@@ -13,6 +13,7 @@ interface SatellitePanelProps {
 
 const COLORS = {
   bgPanel: '#0d1117',
+  primary: '#ffffff',
   green: '#00ff88',
   cyan: '#00d4ff',
   muted: '#4a5568',
@@ -62,7 +63,7 @@ const SatellitePanel: React.FC<SatellitePanelProps> = ({ satellites }) => {
         borderBottom: `1px solid ${COLORS.border}`,
       }}>
         <span style={{
-          color: COLORS.green,
+          color: COLORS.primary,
           fontSize: 11,
           fontWeight: 'bold',
           letterSpacing: 1.5,

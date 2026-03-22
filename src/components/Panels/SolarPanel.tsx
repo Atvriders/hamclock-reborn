@@ -8,6 +8,7 @@ interface SolarPanelProps {
 const COLORS = {
   bg: '#0a0e14',
   bgPanel: '#0d1117',
+  primary: '#ffffff',
   green: '#00ff88',
   amber: '#ffb800',
   red: '#ff4444',
@@ -116,7 +117,7 @@ const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
     }}>
       {/* Header */}
       <div style={{
-        color: COLORS.green,
+        color: COLORS.primary,
         fontSize: 12,
         fontWeight: 'bold',
         letterSpacing: 2,
