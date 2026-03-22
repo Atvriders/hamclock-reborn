@@ -41,13 +41,19 @@ export function useDataFetch() {
   }, [setBands]);
 
   const fetchDxSpots = useCallback(async () => {
-    const data = await safeFetch<DXSpot[]>('/api/dxspots');
-    if (data) setDxSpots(data);
+    const data = await safeFetch<any>('/api/dxspots');
+    if (!data) return;
+    // Server may return array directly or { spots: [...] }
+    const spots = Array.isArray(data) ? data : (data.spots ?? []);
+    if (spots.length > 0) setDxSpots(spots);
   }, [setDxSpots]);
 
   const fetchSatellites = useCallback(async () => {
-    const data = await safeFetch<SatellitePosition[]>('/api/satellites');
-    if (data) setSatellites(data);
+    const data = await safeFetch<any>('/api/satellites');
+    if (!data) return;
+    // Server may return { satellites: [...] } or array
+    const sats = Array.isArray(data) ? data : (data.satellites ?? []);
+    if (sats.length > 0) setSatellites(sats);
   }, [setSatellites]);
 
   const refetch = useCallback(async () => {
