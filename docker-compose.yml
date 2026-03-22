@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: ghcr.io/atvriders/hamclock-reborn-frontend:latest
+    container_name: hamclock-frontend
+    ports:
+      - "3012:3012"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - hamclock
+
+  backend:
+    image: ghcr.io/atvriders/hamclock-reborn-backend:latest
+    container_name: hamclock-backend
+    ports:
+      - "3013:3013"
+    restart: unless-stopped
+    networks:
+      - hamclock
+
+networks:
+  hamclock:
+    driver: bridge
