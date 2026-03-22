@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── SDO Image Sources ───────────────────────────────────────────────
-// Load directly from NASA SDO — they serve CORS headers (Access-Control-Allow-Origin: *)
+// SpaceWeatherLive mirrors SDO images — less likely to be blocked by ad blockers
+// Falls back to direct NASA if needed
 const IMAGE_SOURCES = [
-  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg' },
-  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0304.jpg' },
-  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0171.jpg' },
-  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIBC.jpg' },
+  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_0193_512.jpg' },
+  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_0304_512.jpg' },
+  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_0171_512.jpg' },
+  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_HMIBC_512.jpg' },
   { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg' },
 ] as const;
 

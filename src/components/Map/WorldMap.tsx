@@ -53,14 +53,14 @@ const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoo
 };
 
 // ── Overlay URLs ─────────────────────────────────────────────────
-// KC2G clean renders without axis labels
-const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.png';
+// KC2G SVG is the only working MUF render (PNG returns 404)
+const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
 const AURORA_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg';
 const DRAP_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/d-rap/global.png';
 
 const WORLD_BOUNDS: L.LatLngBoundsExpression = [[-90, -180], [90, 180]];
-// KC2G PNG has axis labels/margins — the actual map is inset ~12% from edges
-const MUF_BOUNDS: L.LatLngBoundsExpression = [[-90, -195], [90, 195]];
+// KC2G SVG has axis labels — extend bounds to compensate for margins
+const MUF_BOUNDS: L.LatLngBoundsExpression = [[-100, -200], [100, 200]];
 const NORTH_BOUNDS: L.LatLngBoundsExpression = [[0, -180], [90, 180]];
 
 // ── Props ─────────────────────────────────────────────────────────

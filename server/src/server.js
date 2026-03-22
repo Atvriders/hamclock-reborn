@@ -394,7 +394,7 @@ async function fetchSatelliteData() {
 // ---------------------------------------------------------------------------
 async function fetchMufMap() {
   const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-muf.json';
-  const KC2G_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.png';
+  const KC2G_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
 
   try {
     const frames = await safeFetchJson(NOAA_URL);
