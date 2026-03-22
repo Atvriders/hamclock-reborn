@@ -47,12 +47,14 @@ async function safeFetch(url, timeout = 10_000) {
 
 async function safeFetchJson(url) {
   const res = await safeFetch(url);
-  return res.json();
+  try { return await res.json(); }
+  catch { throw new Error(`Failed to parse JSON from ${url}`); }
 }
 
 async function safeFetchText(url) {
   const res = await safeFetch(url);
-  return res.text();
+  try { return await res.text(); }
+  catch { throw new Error(`Failed to read text from ${url}`); }
 }
 
 // Simple XML value extractor — avoids needing an XML parser dependency

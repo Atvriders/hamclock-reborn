@@ -114,7 +114,7 @@ npm run start
 
 # Option B: Production with PM2
 sudo npm install -g pm2
-pm2 start server/index.js --name hamclock-backend
+cd server && pm2 start src/server.js --name hamclock-backend && cd ..
 pm2 serve dist 3012 --name hamclock-frontend --spa
 pm2 save
 pm2 startup
