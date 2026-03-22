@@ -549,8 +549,23 @@ export default function WorldMap({
     return () => clearInterval(id);
   }, []);
 
+  // Overlay keys that are mutually exclusive (radio group)
+  const OVERLAY_RADIO_KEYS: (keyof LayerState)[] = ['muf', 'drap', 'aurora'];
+
   const toggleLayer = useCallback((key: keyof LayerState) => {
-    setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+    setLayers((prev) => {
+      // If toggling one of the radio-group overlays, turn off the others
+      if (OVERLAY_RADIO_KEYS.includes(key)) {
+        const turning_on = !prev[key];
+        const updates: Partial<LayerState> = {};
+        for (const k of OVERLAY_RADIO_KEYS) {
+          updates[k] = k === key ? turning_on : false;
+        }
+        return { ...prev, ...updates };
+      }
+      // Independent toggles (dayNight, grayLine, gridSquares)
+      return { ...prev, [key]: !prev[key] };
+    });
   }, []);
 
   const mufUrl = `${MUF_OVERLAY_URL}?_=${cacheBust}`;

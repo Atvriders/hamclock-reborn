@@ -1,14 +1,57 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── SDO Image Sources ───────────────────────────────────────────────
-// SpaceWeatherLive mirrors SDO images — less likely to be blocked by ad blockers
-// Falls back to direct NASA if needed
+// Each source has an ordered list of URLs to try. If one fails, the next
+// is attempted automatically. Order: server proxy → NASA direct → SOHO fallback.
 const IMAGE_SOURCES = [
-  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_0193_512.jpg' },
-  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_0304_512.jpg' },
-  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_0171_512.jpg' },
-  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: 'https://www.spaceweatherlive.com/images/SDO/SDO_HMIBC_512.jpg' },
-  { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg' },
+  {
+    id: 'aia193',
+    label: '193',
+    desc: 'AIA 193 (EUV)',
+    urls: [
+      '/api/solar/proxy/aia193',
+      'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg',
+      'https://soho.nascom.nasa.gov/data/realtime/eit_195/512/latest.jpg',
+    ],
+  },
+  {
+    id: 'aia304',
+    label: '304',
+    desc: 'AIA 304 (He II)',
+    urls: [
+      '/api/solar/proxy/aia304',
+      'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0304.jpg',
+      'https://soho.nascom.nasa.gov/data/realtime/eit_304/512/latest.jpg',
+    ],
+  },
+  {
+    id: 'aia171',
+    label: '171',
+    desc: 'AIA 171 (Fe IX)',
+    urls: [
+      '/api/solar/proxy/aia171',
+      'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0171.jpg',
+      'https://soho.nascom.nasa.gov/data/realtime/eit_171/512/latest.jpg',
+    ],
+  },
+  {
+    id: 'hmimag',
+    label: 'MAG',
+    desc: 'HMI Magnetogram',
+    urls: [
+      '/api/solar/proxy/hmi-mag',
+      'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIBC.jpg',
+    ],
+  },
+  {
+    id: 'hmiint',
+    label: 'INT',
+    desc: 'HMI Intensitygram',
+    urls: [
+      '/api/solar/proxy/hmi-int',
+      'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg',
+    ],
+  },
 ] as const;
 
 type SourceId = typeof IMAGE_SOURCES[number]['id'];
@@ -36,13 +79,17 @@ const SolarImage: React.FC = () => {
   const [expanded, setExpanded] = useState(false);
   const [cacheBuster, setCacheBuster] = useState(Date.now());
   const [hovered, setHovered] = useState<SourceId | null>(null);
+  // Track which URL index we're currently trying for the active source
+  const [urlIndex, setUrlIndex] = useState(0);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const source = IMAGE_SOURCES.find((s) => s.id === activeSource) ?? IMAGE_SOURCES[0];
 
-  // Build the image URL — use cache-busting only on refresh, not on every render
-  const imageUrl = `${source.url}?t=${cacheBuster}`;
+  // Build the image URL — use the current URL index with cache-busting
+  const currentUrl = source.urls[urlIndex] ?? source.urls[0];
+  const separator = currentUrl.includes('?') ? '&' : '?';
+  const imageUrl = `${currentUrl}${separator}t=${cacheBuster}`;
 
   // Clear any pending load timeout
   const clearLoadTimeout = useCallback(() => {
@@ -54,6 +101,7 @@ const SolarImage: React.FC = () => {
 
   // Auto-refresh every 15 minutes
   const refresh = useCallback(() => {
+    setUrlIndex(0); // Reset to first URL on manual/auto refresh
     setCacheBuster(Date.now());
     setLoading(true);
     setError(false);
@@ -66,8 +114,9 @@ const SolarImage: React.FC = () => {
     };
   }, [refresh]);
 
-  // Reset loading/error when source changes
+  // Reset loading/error/urlIndex when source changes
   useEffect(() => {
+    setUrlIndex(0);
     setLoading(true);
     setError(false);
   }, [activeSource]);
@@ -77,12 +126,13 @@ const SolarImage: React.FC = () => {
     clearLoadTimeout();
     if (loading) {
       loadTimeoutRef.current = setTimeout(() => {
-        setLoading(false);
-        setError(true);
+        // Timeout — treat as error, try next URL
+        handleImageError();
       }, IMAGE_LOAD_TIMEOUT_MS);
     }
     return clearLoadTimeout;
-  }, [loading, cacheBuster, activeSource, clearLoadTimeout]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, cacheBuster, activeSource, urlIndex, clearLoadTimeout]);
 
   const handleImageLoad = useCallback(() => {
     clearLoadTimeout();
@@ -92,9 +142,21 @@ const SolarImage: React.FC = () => {
 
   const handleImageError = useCallback(() => {
     clearLoadTimeout();
-    setLoading(false);
-    setError(true);
-  }, [clearLoadTimeout]);
+    // Try the next URL in the list
+    setUrlIndex((prev) => {
+      const nextIdx = prev + 1;
+      if (nextIdx < source.urls.length) {
+        // There's another URL to try — stay in loading state
+        setLoading(true);
+        setError(false);
+        return nextIdx;
+      }
+      // All URLs exhausted — show error
+      setLoading(false);
+      setError(true);
+      return prev;
+    });
+  }, [clearLoadTimeout, source.urls.length]);
 
   const imgSize = 160;
 
@@ -167,6 +229,7 @@ const SolarImage: React.FC = () => {
 
           {/* The actual image — always rendered so it can attempt loading */}
           <img
+            key={`${activeSource}-${urlIndex}-${cacheBuster}`}
             src={imageUrl}
             alt={source.desc}
             style={{
@@ -246,6 +309,7 @@ const SolarImage: React.FC = () => {
                 <ErrorPlaceholder size={400} />
               ) : (
                 <img
+                  key={`modal-${activeSource}-${urlIndex}-${cacheBuster}`}
                   src={imageUrl}
                   alt={source.desc}
                   style={{

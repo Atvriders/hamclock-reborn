@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PropagationForecast, SatellitePass } from '../../types';
 
 interface PropagationBarProps {
@@ -8,6 +8,7 @@ interface PropagationBarProps {
   grayLineSunrise?: string;
   grayLineSunset?: string;
   bandsOpen?: string[];
+  onBandSelect?: (band: string | null) => void;
 }
 
 const COLORS = {
@@ -64,7 +65,15 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
   grayLineSunrise,
   grayLineSunset,
   bandsOpen = [],
+  onBandSelect,
 }) => {
+  const [selectedBand, setSelectedBand] = useState<string | null>(null);
+
+  const handleBandClick = (band: string) => {
+    const newBand = selectedBand === band ? null : band;
+    setSelectedBand(newBand);
+    onBandSelect?.(newBand);
+  };
   return (
     <div style={{
       position: 'fixed',
@@ -131,22 +140,35 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
       <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
         {ALL_HF_BANDS.map((band) => {
           const isOpen = bandsOpen.includes(band);
+          const isSelected = selectedBand === band;
           return (
-            <span
+            <button
               key={band}
+              onClick={() => handleBandClick(band)}
+              title={isOpen ? `${band} — OPEN` : `${band} — CLOSED`}
               style={{
                 padding: '2px 6px',
                 fontSize: 10,
                 fontWeight: 'bold',
                 borderRadius: 3,
-                color: isOpen ? '#0a0e14' : COLORS.muted,
-                background: isOpen ? COLORS.green : 'rgba(74, 85, 104, 0.15)',
+                color: isSelected
+                  ? '#0a0e14'
+                  : isOpen ? '#0a0e14' : COLORS.muted,
+                background: isSelected
+                  ? COLORS.cyan
+                  : isOpen ? COLORS.green : 'rgba(74, 85, 104, 0.15)',
                 letterSpacing: 0.5,
-                transition: 'all 0.3s',
+                transition: 'all 0.2s',
+                cursor: 'pointer',
+                border: isSelected ? `1px solid ${COLORS.cyan}` : '1px solid transparent',
+                boxShadow: isSelected ? `0 0 6px ${COLORS.cyan}` : 'none',
+                outline: 'none',
+                fontFamily: 'inherit',
+                lineHeight: 'inherit',
               }}
             >
               {band}
-            </span>
+            </button>
           );
         })}
       </div>

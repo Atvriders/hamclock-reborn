@@ -47,6 +47,8 @@ function AppInner() {
   const userLat = useAppStore((s) => s.userLat);
   const userLng = useAppStore((s) => s.userLng);
 
+  const [selectedBand, setSelectedBand] = useState<string | null>(null);
+
   useDataFetch();
 
   // Derive which bands are currently open (day = Good or Fair)
@@ -122,6 +124,7 @@ function AppInner() {
         <PropagationBar
           forecast={propagation}
           bandsOpen={bandsOpen}
+          onBandSelect={setSelectedBand}
         />
       </div>
     </div>
