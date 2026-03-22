@@ -55,261 +55,221 @@ function getSubSolarLongitude(date: Date): number {
 }
 
 /**
+ * Compute the solar elevation at a given lat/lng for a given date.
+ * Returns elevation in degrees (positive = above horizon).
+ */
+function solarElevation(lat: number, lng: number, date: Date): number {
+  const decRad = getSolarDeclination(date) * DEG2RAD;
+  const subSolarLng = getSubSolarLongitude(date);
+  const haRad = (lng - subSolarLng) * DEG2RAD;
+  const latRad = lat * DEG2RAD;
+  const sinElev =
+    Math.sin(latRad) * Math.sin(decRad) +
+    Math.cos(latRad) * Math.cos(decRad) * Math.cos(haRad);
+  return Math.asin(Math.max(-1, Math.min(1, sinElev))) * RAD2DEG;
+}
+
+/**
+ * For a given longitude and date, find the latitude where the sun is at
+ * the given elevation angle (in degrees). Uses bisection search.
+ * `searchSouth` controls which side of the equator to search from.
+ *
+ * Returns null if no solution found (e.g. polar day/night).
+ */
+function findLatForElevation(
+  lng: number,
+  targetElev: number,
+  date: Date,
+  searchFromLat: number,
+  searchToLat: number
+): number | null {
+  const decRad = getSolarDeclination(date) * DEG2RAD;
+  const subSolarLng = getSubSolarLongitude(date);
+  const haRad = (lng - subSolarLng) * DEG2RAD;
+  const sinTarget = Math.sin(targetElev * DEG2RAD);
+
+  // f(lat) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha) - sin(targetElev)
+  // We bisect to find the root
+  let lo = searchFromLat;
+  let hi = searchToLat;
+  const fAt = (lat: number) => {
+    const latRad = lat * DEG2RAD;
+    return (
+      Math.sin(latRad) * Math.sin(decRad) +
+      Math.cos(latRad) * Math.cos(decRad) * Math.cos(haRad) -
+      sinTarget
+    );
+  };
+
+  let fLo = fAt(lo);
+  let fHi = fAt(hi);
+
+  // If same sign, no root in this interval
+  if (fLo * fHi > 0) return null;
+
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    const fMid = fAt(mid);
+    if (Math.abs(fMid) < 1e-10) return mid;
+    if (fLo * fMid < 0) {
+      hi = mid;
+      fHi = fMid;
+    } else {
+      lo = mid;
+      fLo = fMid;
+    }
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * Calculate the terminator line (where solar elevation = targetElev degrees)
+ * as a series of [lat, lng] points going from west to east.
+ *
+ * For each longitude, there can be 0 or 2 crossings (north branch and south branch),
+ * or 1 crossing near the poles. We return TWO sorted arrays: north branch and south branch.
+ *
+ * When the sun is near the pole, one branch may be missing at some longitudes.
+ */
+function computeTerminatorBranches(
+  date: Date,
+  targetElev: number,
+  numPoints: number
+): { north: [number, number][]; south: [number, number][] } {
+  const decDeg = getSolarDeclination(date);
+  const subSolarLng = getSubSolarLongitude(date);
+  const decRad = decDeg * DEG2RAD;
+  const sinTarget = Math.sin(targetElev * DEG2RAD);
+
+  const north: [number, number][] = [];
+  const south: [number, number][] = [];
+
+  for (let i = 0; i <= numPoints; i++) {
+    const lng = -180 + (i * 360) / numPoints;
+    const haRad = (lng - subSolarLng) * DEG2RAD;
+    const cosHA = Math.cos(haRad);
+    const sinDec = Math.sin(decRad);
+    const cosDec = Math.cos(decRad);
+
+    // f(lat) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha) - sin(targetElev) = 0
+    // The midpoint (where f changes behavior) is roughly at lat ≈ declination
+    // Try to find two roots: one in [-90, decDeg] and one in [decDeg, 90]
+
+    const latSouth = findLatForElevation(lng, targetElev, date, -90, decDeg);
+    const latNorth = findLatForElevation(lng, targetElev, date, decDeg, 90);
+
+    if (latSouth !== null) south.push([latSouth, lng]);
+    if (latNorth !== null) north.push([latNorth, lng]);
+  }
+
+  return { north, south };
+}
+
+/**
  * Calculate the terminator coordinates as a series of [lat, lng] points.
  * Returns a closed polygon representing the night side of Earth.
  * The terminator is where the solar elevation angle is 0.
  */
 export function getTerminatorCoords(date: Date): [number, number][] {
-  const declination = getSolarDeclination(date) * DEG2RAD;
-  const subSolarLng = getSubSolarLongitude(date);
+  const { north, south } = computeTerminatorBranches(date, 0, 360);
 
+  // Combine: south branch west-to-east, then north branch east-to-west
+  // This traces a closed curve around the dayside or nightside
   const points: [number, number][] = [];
-  const numPoints = 360;
-
-  // Calculate terminator points
-  // For each longitude offset from the sub-solar point, find the latitude
-  // where solar elevation = 0
-  for (let i = 0; i <= numPoints; i++) {
-    const lng = -180 + (i * 360) / numPoints;
-
-    // Hour angle in radians
-    const hourAngle = (lng - subSolarLng) * DEG2RAD;
-
-    // Latitude where solar elevation = 0:
-    // sin(elev) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha) = 0
-    // => tan(lat) = -cos(ha) / tan(dec) ... but this breaks at equinoxes
-    // Better: lat = atan(-cos(ha) / tan(dec))
-    // At equinox (dec≈0), terminator is a great circle through poles
-
-    let lat: number;
-    if (Math.abs(declination) < 0.001) {
-      // Near equinox — terminator runs pole to pole
-      // cos(ha) = -sin(lat)*sin(dec)/(cos(lat)*cos(dec)) ≈ 0
-      // The terminator is where ha = ±90°, i.e., lng = subSolarLng ± 90
-      lat = Math.atan(-Math.cos(hourAngle) / 0.001) * RAD2DEG;
-      lat = Math.max(-90, Math.min(90, lat));
-    } else {
-      lat = Math.atan(-Math.cos(hourAngle) / Math.tan(declination)) * RAD2DEG;
-    }
-
-    points.push([lat, lng]);
-  }
-
+  points.push(...south);
+  points.push(...[...north].reverse());
   return points;
 }
 
 /**
  * Build a closed polygon covering the night side of the Earth.
  * Returns lat/lng pairs suitable for use as a Leaflet polygon.
+ *
+ * Strategy: trace the terminator line (elev=0), then close via the dark pole
+ * along the map edges. We use the two branches (north and south) to build
+ * a proper polygon that doesn't cross diagonally.
  */
 export function getNightPolygon(date: Date): [number, number][][] {
   const declination = getSolarDeclination(date);
-  const terminatorPoints = getTerminatorCoords(date);
+  const subSolarLng = getSubSolarLongitude(date);
+  const { north, south } = computeTerminatorBranches(date, 0, 360);
 
-  // Determine which pole is in darkness
-  // If declination > 0 (northern summer), south pole is dark
-  // If declination < 0 (northern winter), north pole is dark
+  // The dark pole: if dec > 0 (northern summer), south pole is dark
   const darkPoleLat = declination >= 0 ? -90 : 90;
 
-  // Build the night polygon:
-  // Start with the terminator line, then close via the dark pole
+  // We need to build a polygon that covers the night side.
+  // The terminator has a south branch and a north branch.
+  // For the night polygon:
+  //   - If south pole is dark (dec >= 0):
+  //     The night side is BELOW the south branch of the terminator.
+  //     Polygon: south branch (west to east), then bottom edge east to west.
+  //   - If north pole is dark (dec < 0):
+  //     The night side is ABOVE the north branch of the terminator.
+  //     Polygon: north branch (west to east), then top edge east to west.
+
   const nightPoly: [number, number][] = [];
 
-  // Add the terminator points
-  for (const pt of terminatorPoints) {
-    nightPoly.push(pt);
+  if (declination >= 0) {
+    // South pole is dark. Night is below the south branch.
+    // Go along south branch west to east
+    nightPoly.push(...south);
+    // Close along the bottom (south pole)
+    if (south.length > 0) {
+      nightPoly.push([darkPoleLat, south[south.length - 1][1]]);
+      nightPoly.push([darkPoleLat, south[0][1]]);
+    }
+  } else {
+    // North pole is dark. Night is above the north branch.
+    // Go along north branch west to east
+    nightPoly.push(...north);
+    // Close along the top (north pole)
+    if (north.length > 0) {
+      nightPoly.push([darkPoleLat, north[north.length - 1][1]]);
+      nightPoly.push([darkPoleLat, north[0][1]]);
+    }
   }
-
-  // Close via the dark pole — go along lng=180 to the pole, then lng=-180 back
-  nightPoly.push([darkPoleLat, 180]);
-  nightPoly.push([darkPoleLat, -180]);
 
   return [nightPoly];
 }
 
 /**
- * Calculate the gray line (dawn and dusk bands) coordinates.
- * The gray line is the region where the sun is between 0° and -6° elevation,
- * which corresponds to civil twilight — the zone of enhanced propagation.
+ * Compute the gray line (civil twilight band) as polyline coordinates.
  *
- * Returns two bands: dawn (sun rising) and dusk (sun setting).
+ * Returns the terminator line (elev=0) and the twilight line (elev=-6)
+ * as arrays of [lat, lng] suitable for rendering as Leaflet Polylines.
+ *
+ * Each is split into two branches (north and south) to avoid diagonal crossings.
  */
-export function getGrayLineCoords(date: Date): {
-  dawn: [number, number][];
-  dusk: [number, number][];
+export function getGrayLinePolylines(date: Date): {
+  terminatorNorth: [number, number][];
+  terminatorSouth: [number, number][];
+  twilightNorth: [number, number][];
+  twilightSouth: [number, number][];
 } {
-  const declination = getSolarDeclination(date) * DEG2RAD;
-  const subSolarLng = getSubSolarLongitude(date);
+  const terminator = computeTerminatorBranches(date, 0, 360);
+  const twilight = computeTerminatorBranches(date, -6, 360);
 
-  const twilightAngle = -6 * DEG2RAD; // Civil twilight
-  const numPoints = 360;
-
-  const terminatorOuter: [number, number][] = [];
-  const terminatorInner: [number, number][] = [];
-
-  for (let i = 0; i <= numPoints; i++) {
-    const lng = -180 + (i * 360) / numPoints;
-    const hourAngle = (lng - subSolarLng) * DEG2RAD;
-
-    // Terminator (elevation = 0)
-    let latTerminator: number;
-    if (Math.abs(declination) < 0.001) {
-      latTerminator = Math.atan(-Math.cos(hourAngle) / 0.001) * RAD2DEG;
-      latTerminator = Math.max(-90, Math.min(90, latTerminator));
-    } else {
-      latTerminator = Math.atan(-Math.cos(hourAngle) / Math.tan(declination)) * RAD2DEG;
-    }
-
-    // Civil twilight boundary (elevation = -6°)
-    // sin(elev) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha)
-    // For elev = twilightAngle:
-    // sin(twilight) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha)
-    let latTwilight: number;
-    if (Math.abs(declination) < 0.001) {
-      latTwilight = Math.atan(
-        (Math.sin(twilightAngle) - 0.001 * Math.cos(hourAngle)) / 0.001
-      ) * RAD2DEG;
-      latTwilight = Math.max(-90, Math.min(90, latTwilight));
-    } else {
-      // Solve: sin(tw) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha)
-      // Use: lat = atan2(sin(tw) - cos(dec)*cos(ha)*sin(latGuess), sin(dec))
-      // Iterative or use: atan((-cos(ha) + sin(tw)/sin(dec)) * sin(dec) / cos(dec)... )
-      // Simpler approximation: shift the terminator by the twilight offset
-      const cosHA = Math.cos(hourAngle);
-      const sinDec = Math.sin(declination);
-      const cosDec = Math.cos(declination);
-
-      // From: sin(tw) = sin(lat)*sin(dec) + cos(lat)*cos(dec)*cos(ha)
-      // This is: sin(tw) = cos(lat - dec) * cos(ha) + sin(lat)*sin(dec)*(1 - cos(ha)) + ...
-      // Numerical approach: use Newton's method with 2 iterations
-      let lat = latTerminator * DEG2RAD;
-      for (let iter = 0; iter < 5; iter++) {
-        const sinLat = Math.sin(lat);
-        const cosLat = Math.cos(lat);
-        const f = sinLat * sinDec + cosLat * cosDec * cosHA - Math.sin(twilightAngle);
-        const fp = cosLat * sinDec - sinLat * cosDec * cosHA;
-        if (Math.abs(fp) > 1e-10) {
-          lat = lat - f / fp;
-        }
-      }
-      latTwilight = lat * RAD2DEG;
-      latTwilight = Math.max(-90, Math.min(90, latTwilight));
-    }
-
-    terminatorInner.push([latTerminator, lng]);
-    terminatorOuter.push([latTwilight, lng]);
-  }
-
-  // Dawn is on the east side of the sub-solar point (sun is rising)
-  // Dusk is on the west side (sun is setting)
-  const dawn: [number, number][] = [];
-  const dusk: [number, number][] = [];
-
-  for (let i = 0; i <= numPoints; i++) {
-    const lng = -180 + (i * 360) / numPoints;
-
-    // Normalize relative longitude to sub-solar point
-    let relLng = lng - subSolarLng;
-    while (relLng > 180) relLng -= 360;
-    while (relLng < -180) relLng += 360;
-
-    if (relLng < 0) {
-      // East of sub-solar point = dawn side
-      dawn.push(terminatorInner[i]);
-      dawn.push(terminatorOuter[i]);
-    } else {
-      // West of sub-solar point = dusk side
-      dusk.push(terminatorInner[i]);
-      dusk.push(terminatorOuter[i]);
-    }
-  }
-
-  return { dawn, dusk };
+  return {
+    terminatorNorth: terminator.north,
+    terminatorSouth: terminator.south,
+    twilightNorth: twilight.north,
+    twilightSouth: twilight.south,
+  };
 }
 
 /**
  * Get the gray line as polygon rings (for rendering as filled areas).
  * Returns two polygon coordinate arrays — one for dawn band, one for dusk band.
+ *
+ * DEPRECATED: Use getGrayLinePolylines() instead to avoid diagonal rendering artifacts.
+ * Kept for API compatibility.
  */
 export function getGrayLinePolygons(date: Date): {
   dawn: [number, number][];
   dusk: [number, number][];
 } {
-  const declination = getSolarDeclination(date) * DEG2RAD;
-  const subSolarLng = getSubSolarLongitude(date);
-  const twilightAngle = -6 * DEG2RAD;
-  const numPoints = 360;
-
-  const dawnPoly: [number, number][] = [];
-  const duskPoly: [number, number][] = [];
-
-  // For each longitude, compute both terminator lat and twilight lat
-  const terminatorLats: number[] = [];
-  const twilightLats: number[] = [];
-  const lngs: number[] = [];
-
-  for (let i = 0; i <= numPoints; i++) {
-    const lng = -180 + (i * 360) / numPoints;
-    lngs.push(lng);
-    const hourAngle = (lng - subSolarLng) * DEG2RAD;
-
-    const effDec = Math.abs(declination) < 0.001 ? 0.001 : declination;
-
-    // Terminator latitude
-    const latT = Math.atan(-Math.cos(hourAngle) / Math.tan(effDec)) * RAD2DEG;
-    terminatorLats.push(Math.max(-90, Math.min(90, latT)));
-
-    // Twilight latitude (Newton's method)
-    const sinDec = Math.sin(declination);
-    const cosDec = Math.cos(declination);
-    const cosHA = Math.cos(hourAngle);
-    let lat = latT * DEG2RAD;
-    for (let iter = 0; iter < 5; iter++) {
-      const sinLat = Math.sin(lat);
-      const cosLat = Math.cos(lat);
-      const f = sinLat * sinDec + cosLat * cosDec * cosHA - Math.sin(twilightAngle);
-      const fp = cosLat * sinDec - sinLat * cosDec * cosHA;
-      if (Math.abs(fp) > 1e-10) {
-        lat = lat - f / fp;
-      }
-    }
-    twilightLats.push(Math.max(-90, Math.min(90, lat * RAD2DEG)));
-  }
-
-  // Split into dawn (sun rising, east side) and dusk (sun setting, west side)
-  // Dawn band: between terminator and twilight on the morning side
-  // Dusk band: between terminator and twilight on the evening side
-
-  const dawnForward: [number, number][] = [];
-  const dawnReverse: [number, number][] = [];
-  const duskForward: [number, number][] = [];
-  const duskReverse: [number, number][] = [];
-
-  for (let i = 0; i <= numPoints; i++) {
-    let relLng = lngs[i] - subSolarLng;
-    while (relLng > 180) relLng -= 360;
-    while (relLng < -180) relLng += 360;
-
-    // Morning side: relative longitude between -180 and -90, or 90 to 180
-    // (terminator is at ±90° from sub-solar point at equinox)
-    // Actually simpler: dawn = east terminator, dusk = west terminator
-    // The terminator on the east is where relLng ≈ -90 (sun about to rise)
-    // The terminator on the west is where relLng ≈ +90 (sun about to set)
-
-    if (relLng >= -180 && relLng <= 0) {
-      dawnForward.push([terminatorLats[i], lngs[i]]);
-      dawnReverse.push([twilightLats[i], lngs[i]]);
-    } else {
-      duskForward.push([terminatorLats[i], lngs[i]]);
-      duskReverse.push([twilightLats[i], lngs[i]]);
-    }
-  }
-
-  // Build closed polygons: forward along terminator, reverse along twilight
-  dawnPoly.push(...dawnForward, ...dawnReverse.reverse());
-  duskPoly.push(...duskForward, ...duskReverse.reverse());
-
-  return { dawn: dawnPoly, dusk: duskPoly };
+  // Return empty — callers should switch to getGrayLinePolylines
+  return { dawn: [], dusk: [] };
 }
 
 /**

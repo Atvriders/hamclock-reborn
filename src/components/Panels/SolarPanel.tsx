@@ -179,8 +179,8 @@ const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
 
       <DataRow
         label="A-Index"
-        value={data.aIndex}
-        color={data.aIndex > 30 ? COLORS.red : data.aIndex > 15 ? COLORS.amber : COLORS.green}
+        value={data.aIndex ?? '—'}
+        color={data.aIndex != null ? (data.aIndex > 30 ? COLORS.red : data.aIndex > 15 ? COLORS.amber : COLORS.green) : COLORS.text}
       />
 
       {data.solarWind?.bz != null && (

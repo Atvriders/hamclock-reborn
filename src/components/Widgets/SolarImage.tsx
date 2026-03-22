@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── SDO Image Sources ───────────────────────────────────────────────
 const IMAGE_SOURCES = [
-  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: '/api/solar/image/aia193' },
-  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: '/api/solar/image/aia304' },
-  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: '/api/solar/image/aia171' },
-  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: '/api/solar/image/hmi-mag' },
-  { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: '/api/solar/image/hmi-int' },
+  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: '/api/solar/proxy/aia193' },
+  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: '/api/solar/proxy/aia304' },
+  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: '/api/solar/proxy/aia171' },
+  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: '/api/solar/proxy/hmi-mag' },
+  { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: '/api/solar/proxy/hmi-int' },
 ] as const;
 
 type SourceId = typeof IMAGE_SOURCES[number]['id'];

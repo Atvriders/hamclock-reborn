@@ -575,9 +575,9 @@ app.get('/api/solar/image', async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Endpoint: /api/solar/image/:type — Proxy SDO solar images (avoids CORS)
+// Endpoint: /api/solar/proxy/:type — Proxy SDO solar images (avoids CORS)
 // ---------------------------------------------------------------------------
-app.get('/api/solar/image/:type', async (req, res) => {
+app.get('/api/solar/proxy/:type', async (req, res) => {
   const IMAGE_URLS = {
     'aia193': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg',
     'aia304': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0304.jpg',
@@ -600,7 +600,7 @@ app.get('/api/solar/image/:type', async (req, res) => {
     const buffer = await response.arrayBuffer();
     res.send(Buffer.from(buffer));
   } catch (err) {
-    console.error('[solar-image] Failed to proxy:', err.message);
+    console.error('[solar-proxy] Failed to proxy:', err.message);
     res.status(502).json({ error: 'Failed to fetch solar image' });
   }
 });

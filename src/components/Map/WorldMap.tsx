@@ -3,6 +3,7 @@ import {
   MapContainer,
   TileLayer,
   Polygon,
+  Polyline,
   Rectangle,
   Marker,
   Popup,
@@ -14,7 +15,7 @@ import L from 'leaflet';
 import type { DXSpot, SatellitePosition } from '../../types';
 import {
   getNightPolygon,
-  getGrayLinePolygons,
+  getGrayLinePolylines,
   getMaidenheadGrid,
 } from '../../utils/solar';
 
@@ -130,7 +131,23 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
   }, []);
 
   const nightCoords = useMemo(() => getNightPolygon(now), [now]);
-  const grayLine = useMemo(() => getGrayLinePolygons(now), [now]);
+  const grayLines = useMemo(() => getGrayLinePolylines(now), [now]);
+
+  // Gray line style: thick semi-transparent amber lines for the terminator
+  // and twilight boundaries, creating a visible dawn/dusk band effect
+  const grayLineTerminatorStyle = {
+    color: '#ffab00',
+    weight: 3,
+    opacity: 0.7,
+    interactive: false,
+  };
+  const grayLineTwilightStyle = {
+    color: '#ff8f00',
+    weight: 2,
+    opacity: 0.5,
+    interactive: false,
+    dashArray: '6 4',
+  };
 
   return (
     <>
@@ -140,38 +157,38 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
           positions={nightCoords}
           pathOptions={{
             color: 'transparent',
-            fillColor: '#000',
-            fillOpacity: 0.45,
+            fillColor: '#1a2040',
+            fillOpacity: 0.38,
             interactive: false,
           }}
         />
       )}
 
-      {/* Gray line — dawn band */}
-      {showGray && grayLine.dawn.length > 2 && (
-        <Polygon
-          positions={grayLine.dawn}
-          pathOptions={{
-            color: '#ffab00',
-            weight: 1,
-            fillColor: '#ff8f00',
-            fillOpacity: 0.28,
-            interactive: false,
-          }}
+      {/* Gray line — terminator lines (elev = 0°) */}
+      {showGray && grayLines.terminatorSouth.length > 1 && (
+        <Polyline
+          positions={grayLines.terminatorSouth}
+          pathOptions={grayLineTerminatorStyle}
+        />
+      )}
+      {showGray && grayLines.terminatorNorth.length > 1 && (
+        <Polyline
+          positions={grayLines.terminatorNorth}
+          pathOptions={grayLineTerminatorStyle}
         />
       )}
 
-      {/* Gray line — dusk band */}
-      {showGray && grayLine.dusk.length > 2 && (
-        <Polygon
-          positions={grayLine.dusk}
-          pathOptions={{
-            color: '#ffab00',
-            weight: 1,
-            fillColor: '#ff8f00',
-            fillOpacity: 0.28,
-            interactive: false,
-          }}
+      {/* Gray line — twilight boundary lines (elev = -6°) */}
+      {showGray && grayLines.twilightSouth.length > 1 && (
+        <Polyline
+          positions={grayLines.twilightSouth}
+          pathOptions={grayLineTwilightStyle}
+        />
+      )}
+      {showGray && grayLines.twilightNorth.length > 1 && (
+        <Polyline
+          positions={grayLines.twilightNorth}
+          pathOptions={grayLineTwilightStyle}
         />
       )}
     </>
@@ -596,7 +613,7 @@ export default function WorldMap({
           <ImageOverlay
             url={mufUrl}
             bounds={WORLD_BOUNDS}
-            opacity={0.6}
+            opacity={0.35}
             interactive={false}
             className="muf-overlay"
           />
