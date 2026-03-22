@@ -320,6 +320,7 @@ function BaseTileLayer({ mapStyle }: { mapStyle: MapStyle }) {
     const layer = L.tileLayer(cfg.url, {
       subdomains: cfg.subdomains || 'abc',
       maxZoom: cfg.maxZoom,
+      noWrap: true,
     });
     layer.addTo(map);
     // Make sure it's below all overlays
@@ -531,11 +532,6 @@ export default function WorldMap({
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  const center: [number, number] = useMemo(
-    () => [userLat ?? 20, userLng ?? 0],
-    [userLat, userLng]
-  );
-
   const mufUrl = `${MUF_OVERLAY_URL}?_=${cacheBust}`;
   const drapUrl = `${DRAP_OVERLAY_URL}?_=${cacheBust}`;
   const auroraUrl = `${AURORA_OVERLAY_URL}?_=${cacheBust}`;
@@ -577,13 +573,15 @@ export default function WorldMap({
       />
 
       <MapContainer
-        center={center}
+        center={[20, 0]}
         zoom={2}
         minZoom={2}
-        maxZoom={10}
+        maxZoom={12}
         zoomControl={false}
         attributionControl={false}
-        worldCopyJump
+        worldCopyJump={false}
+        maxBounds={[[-90, -180], [90, 180]]}
+        maxBoundsViscosity={1.0}
         style={{ width: '100%', height: '100%' }}
         ref={mapRef}
       >

@@ -575,6 +575,37 @@ app.get('/api/solar/image', async (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Endpoint: /api/solar/image/:type — Proxy SDO solar images (avoids CORS)
+// ---------------------------------------------------------------------------
+app.get('/api/solar/image/:type', async (req, res) => {
+  const IMAGE_URLS = {
+    'aia193': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg',
+    'aia304': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0304.jpg',
+    'aia171': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0171.jpg',
+    'hmi-mag': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIBC.jpg',
+    'hmi-int': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg',
+  };
+
+  const url = IMAGE_URLS[req.params.type];
+  if (!url) return res.status(404).json({ error: 'Unknown image type' });
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Cache-Control', 'public, max-age=600'); // 10 min cache
+
+    // Pipe the image data through
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error('[solar-image] Failed to proxy:', err.message);
+    res.status(502).json({ error: 'Failed to fetch solar image' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Endpoint: /api/maps/foF2 — foF2 critical frequency map
 // ---------------------------------------------------------------------------
 async function fetchFoF2Map() {

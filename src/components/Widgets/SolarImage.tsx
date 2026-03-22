@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── SDO Image Sources ───────────────────────────────────────────────
 const IMAGE_SOURCES = [
-  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg' },
-  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0304.jpg' },
-  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0171.jpg' },
-  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIBC.jpg' },
-  { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg' },
+  { id: 'aia193', label: '193', desc: 'AIA 193 (EUV)', url: '/api/solar/image/aia193' },
+  { id: 'aia304', label: '304', desc: 'AIA 304 (He II)', url: '/api/solar/image/aia304' },
+  { id: 'aia171', label: '171', desc: 'AIA 171 (Fe IX)', url: '/api/solar/image/aia171' },
+  { id: 'hmimag', label: 'MAG', desc: 'HMI Magnetogram', url: '/api/solar/image/hmi-mag' },
+  { id: 'hmiint', label: 'INT', desc: 'HMI Intensitygram', url: '/api/solar/image/hmi-int' },
 ] as const;
 
 type SourceId = typeof IMAGE_SOURCES[number]['id'];
@@ -167,8 +167,6 @@ const SolarImage: React.FC = () => {
           <img
             src={imageUrl}
             alt={source.desc}
-            crossOrigin="anonymous"
-            referrerPolicy="no-referrer"
             style={{
               width: '100%',
               height: '100%',
@@ -248,8 +246,6 @@ const SolarImage: React.FC = () => {
                 <img
                   src={imageUrl}
                   alt={source.desc}
-                  crossOrigin="anonymous"
-                  referrerPolicy="no-referrer"
                   style={{
                     width: 512,
                     height: 512,
