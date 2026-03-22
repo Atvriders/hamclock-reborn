@@ -16,7 +16,7 @@ const cache = {
   solar:      { data: null, ts: 0, ttl: 5 * 60_000 },
   bands:      { data: null, ts: 0, ttl: 10 * 60_000 },
   dxspots:    { data: null, ts: 0, ttl: 1 * 60_000 },
-  satellites: { data: null, ts: 0, ttl: 15 * 60_000 },
+  satellites: { data: null, ts: 0, ttl: 5 * 60_000 },
   mapMuf:     { data: null, ts: 0, ttl: 15 * 60_000 },
   mapDrap:    { data: null, ts: 0, ttl: 15 * 60_000 },
   mapAurora:  { data: null, ts: 0, ttl: 15 * 60_000 },
@@ -30,9 +30,18 @@ function getCached(key) {
   return null;
 }
 
+function getStaleOrNull(key) {
+  return cache[key].data || null;
+}
+
 function setCache(key, data) {
   cache[key].data = data;
   cache[key].ts = Date.now();
+}
+
+function cacheAge(key) {
+  if (!cache[key].ts) return null;
+  return Math.round((Date.now() - cache[key].ts) / 1000);
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +144,7 @@ function classifyXray(flux) {
 }
 
 // ---------------------------------------------------------------------------
-// Endpoint: /api/solar
+// Data fetchers
 // ---------------------------------------------------------------------------
 async function fetchSolarData() {
   const [kpData, sfiData, ssnData, solarWindData, xrayData, hamqslData] = await Promise.allSettled([
@@ -224,25 +233,6 @@ async function fetchSolarData() {
   return { kp, sfi, ssn, aIndex, solarWind, xray, timestamp: new Date().toISOString() };
 }
 
-app.get('/api/solar', async (_req, res) => {
-  try {
-    const cached = getCached('solar');
-    if (cached) return res.json(cached);
-
-    const data = await fetchSolarData();
-    setCache('solar', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/solar] Error:', err.message);
-    const fallback = cache.solar.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch solar data' });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Endpoint: /api/bands
-// ---------------------------------------------------------------------------
 async function fetchBandData() {
   const xml = await safeFetchText('https://www.hamqsl.com/solarxml.php');
 
@@ -266,25 +256,6 @@ async function fetchBandData() {
   };
 }
 
-app.get('/api/bands', async (_req, res) => {
-  try {
-    const cached = getCached('bands');
-    if (cached) return res.json(cached);
-
-    const data = await fetchBandData();
-    setCache('bands', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/bands] Error:', err.message);
-    const fallback = cache.bands.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch band conditions' });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Endpoint: /api/dxspots
-// ---------------------------------------------------------------------------
 async function fetchDxSpots() {
   const text = await safeFetchText('https://www.dxwatch.com/dxsd1/s.php?s=0&r=50');
 
@@ -338,24 +309,8 @@ function guessMode(freq, comment) {
   return 'SSB';
 }
 
-app.get('/api/dxspots', async (_req, res) => {
-  try {
-    const cached = getCached('dxspots');
-    if (cached) return res.json(cached);
-
-    const data = await fetchDxSpots();
-    setCache('dxspots', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/dxspots] Error:', err.message);
-    const cached = cache.dxspots.data;
-    if (cached) return res.json(cached);
-    res.json({ spots: [], count: 0, timestamp: new Date().toISOString() });
-  }
-});
-
 // ---------------------------------------------------------------------------
-// Endpoint: /api/satellites
+// Satellites
 // ---------------------------------------------------------------------------
 const TRACKED_SATS = [
   'ISS (ZARYA)', 'ISS', 'AO-91', 'AMSAT OSCAR 91', 'RADFXSAT',
@@ -434,24 +389,8 @@ async function fetchSatelliteData() {
   return { satellites: results, count: results.length, timestamp: new Date().toISOString() };
 }
 
-app.get('/api/satellites', async (_req, res) => {
-  try {
-    const cached = getCached('satellites');
-    if (cached) return res.json(cached);
-
-    const data = await fetchSatelliteData();
-    setCache('satellites', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/satellites] Error:', err.message);
-    const cached = cache.satellites?.data;
-    if (cached) return res.json(cached);
-    res.json({ satellites: [], count: 0, timestamp: new Date().toISOString() });
-  }
-});
-
 // ---------------------------------------------------------------------------
-// Endpoint: /api/maps/muf — Maximum Usable Frequency map
+// Map fetchers
 // ---------------------------------------------------------------------------
 async function fetchMufMap() {
   const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-muf.json';
@@ -471,25 +410,6 @@ async function fetchMufMap() {
   return { imageUrl: KC2G_URL, timestamp: new Date().toISOString() };
 }
 
-app.get('/api/maps/muf', async (_req, res) => {
-  try {
-    const cached = getCached('mapMuf');
-    if (cached) return res.json(cached);
-
-    const data = await fetchMufMap();
-    setCache('mapMuf', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/maps/muf] Error:', err.message);
-    const fallback = cache.mapMuf.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch MUF map data' });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Endpoint: /api/maps/drap — D-Region Absorption Prediction
-// ---------------------------------------------------------------------------
 async function fetchDrapMap() {
   const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/d-region-absorption-predictions.json';
 
@@ -503,25 +423,6 @@ async function fetchDrapMap() {
   throw new Error('No DRAP animation frames returned');
 }
 
-app.get('/api/maps/drap', async (_req, res) => {
-  try {
-    const cached = getCached('mapDrap');
-    if (cached) return res.json(cached);
-
-    const data = await fetchDrapMap();
-    setCache('mapDrap', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/maps/drap] Error:', err.message);
-    const fallback = cache.mapDrap.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch DRAP map data' });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Endpoint: /api/maps/aurora — Aurora oval map
-// ---------------------------------------------------------------------------
 async function fetchAuroraMap() {
   const JSON_URL = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
   const IMAGE_URL = 'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg';
@@ -549,25 +450,6 @@ async function fetchAuroraMap() {
   };
 }
 
-app.get('/api/maps/aurora', async (_req, res) => {
-  try {
-    const cached = getCached('mapAurora');
-    if (cached) return res.json(cached);
-
-    const data = await fetchAuroraMap();
-    setCache('mapAurora', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/maps/aurora] Error:', err.message);
-    const fallback = cache.mapAurora.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch aurora map data' });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Endpoint: /api/solar/image — Latest SDO solar images
-// ---------------------------------------------------------------------------
 async function fetchSolarImages() {
   // These are static URLs that always serve the latest image from NASA SDO
   const images = [
@@ -595,24 +477,57 @@ async function fetchSolarImages() {
   return { images, timestamp: new Date().toISOString() };
 }
 
-app.get('/api/solar/image', async (_req, res) => {
-  try {
-    const cached = getCached('solarImage');
-    if (cached) return res.json(cached);
+async function fetchFoF2Map() {
+  const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-fof2.json';
 
-    const data = await fetchSolarImages();
-    setCache('solarImage', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/solar/image] Error:', err.message);
-    const fallback = cache.solarImage.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch solar image data' });
+  const frames = await safeFetchJson(NOAA_URL);
+  if (Array.isArray(frames) && frames.length > 0) {
+    const latest = frames[frames.length - 1];
+    const imageUrl = `https://services.swpc.noaa.gov/${latest.url}`;
+    return { imageUrl, timestamp: latest.time_tag || new Date().toISOString() };
   }
-});
+
+  throw new Error('No foF2 animation frames returned');
+}
+
+// ---------------------------------------------------------------------------
+// Background polling — fetches data and updates cache
+// ---------------------------------------------------------------------------
+async function pollSource(name, fetchFn) {
+  try {
+    const data = await fetchFn();
+    setCache(name, data);
+    console.log(`[poll] ${name} updated`);
+  } catch (err) {
+    console.warn(`[poll] ${name} fetch failed: ${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// API endpoints — serve ONLY cached data, never block on upstream fetch
+// ---------------------------------------------------------------------------
+function serveCached(key, emptyFallback) {
+  return (_req, res) => {
+    const data = cache[key].data;
+    if (data) return res.json(data);
+    // Cache not yet populated (server just started)
+    res.json(emptyFallback ?? { status: 'loading' });
+  };
+}
+
+app.get('/api/solar', serveCached('solar', { status: 'loading' }));
+app.get('/api/bands', serveCached('bands', { status: 'loading' }));
+app.get('/api/dxspots', serveCached('dxspots', []));
+app.get('/api/satellites', serveCached('satellites', { satellites: [], count: 0, status: 'loading' }));
+app.get('/api/maps/muf', serveCached('mapMuf', { status: 'loading' }));
+app.get('/api/maps/drap', serveCached('mapDrap', { status: 'loading' }));
+app.get('/api/maps/aurora', serveCached('mapAurora', { status: 'loading' }));
+app.get('/api/solar/image', serveCached('solarImage', { status: 'loading' }));
+app.get('/api/maps/foF2', serveCached('mapFoF2', { status: 'loading' }));
 
 // ---------------------------------------------------------------------------
 // Endpoint: /api/solar/proxy/:type — Proxy SDO solar images (avoids CORS)
+// Binary data — proxy on-demand is fine
 // ---------------------------------------------------------------------------
 app.get('/api/solar/proxy/:type', async (req, res) => {
   const IMAGE_URLS = {
@@ -643,35 +558,24 @@ app.get('/api/solar/proxy/:type', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Endpoint: /api/maps/foF2 — foF2 critical frequency map
+// Endpoint: /api/status — shows which data sources are loaded and their age
 // ---------------------------------------------------------------------------
-async function fetchFoF2Map() {
-  const NOAA_URL = 'https://services.swpc.noaa.gov/products/animations/ctipe-fof2.json';
-
-  const frames = await safeFetchJson(NOAA_URL);
-  if (Array.isArray(frames) && frames.length > 0) {
-    const latest = frames[frames.length - 1];
-    const imageUrl = `https://services.swpc.noaa.gov/${latest.url}`;
-    return { imageUrl, timestamp: latest.time_tag || new Date().toISOString() };
+app.get('/api/status', (_req, res) => {
+  const sources = ['solar', 'bands', 'dxspots', 'satellites', 'mapMuf', 'mapDrap', 'mapAurora', 'solarImage', 'mapFoF2'];
+  const status = {};
+  for (const key of sources) {
+    const entry = cache[key];
+    if (entry.data) {
+      status[key] = {
+        loaded: true,
+        lastFetch: new Date(entry.ts).toISOString(),
+        age: cacheAge(key),
+      };
+    } else {
+      status[key] = { loaded: false };
+    }
   }
-
-  throw new Error('No foF2 animation frames returned');
-}
-
-app.get('/api/maps/foF2', async (_req, res) => {
-  try {
-    const cached = getCached('mapFoF2');
-    if (cached) return res.json(cached);
-
-    const data = await fetchFoF2Map();
-    setCache('mapFoF2', data);
-    res.json(data);
-  } catch (err) {
-    console.error('[/api/maps/foF2] Error:', err.message);
-    const fallback = cache.mapFoF2.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch foF2 map data' });
-  }
+  res.json(status);
 });
 
 // ---------------------------------------------------------------------------
@@ -697,41 +601,37 @@ app.get('/api/health', (_req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Background polling
-// ---------------------------------------------------------------------------
-async function pollSolar() {
-  try {
-    const data = await fetchSolarData();
-    setCache('solar', data);
-    console.log('[poll] Solar data updated');
-  } catch (err) {
-    console.warn('[poll] Solar fetch failed:', err.message);
-  }
-}
-
-async function pollBands() {
-  try {
-    const data = await fetchBandData();
-    setCache('bands', data);
-    console.log('[poll] Band conditions updated');
-  } catch (err) {
-    console.warn('[poll] Band fetch failed:', err.message);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Start server
+// Start server — begin listening immediately, fetch data in background
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
   console.log(`HamClock Reborn server running on http://localhost:${PORT}`);
+  console.log('[startup] Beginning background data fetches...');
 
-  // Initial fetches
-  pollSolar();
-  pollBands();
+  // Phase 1: Solar + Bands (fastest, most important)
+  pollSource('solar', fetchSolarData);
+  pollSource('bands', fetchBandData);
+  pollSource('solarImage', fetchSolarImages);
+
+  // Phase 2: Maps (medium priority)
+  pollSource('mapMuf', fetchMufMap);
+  pollSource('mapDrap', fetchDrapMap);
+  pollSource('mapAurora', fetchAuroraMap);
+  pollSource('mapFoF2', fetchFoF2Map);
+
+  // Phase 3: DX spots + Satellites (DX spots fast, satellites slow)
+  pollSource('dxspots', fetchDxSpots);
+  pollSource('satellites', fetchSatelliteData);
 
   // Background polling intervals
-  setInterval(pollSolar, 5 * 60_000);   // every 5 min
-  setInterval(pollBands, 10 * 60_000);   // every 10 min
+  setInterval(() => pollSource('solar', fetchSolarData),           5 * 60_000);   // every 5 min
+  setInterval(() => pollSource('bands', fetchBandData),           10 * 60_000);   // every 10 min
+  setInterval(() => pollSource('dxspots', fetchDxSpots),           1 * 60_000);   // every 60 sec
+  setInterval(() => pollSource('satellites', fetchSatelliteData),  5 * 60_000);   // every 5 min
+  setInterval(() => pollSource('mapMuf', fetchMufMap),            15 * 60_000);   // every 15 min
+  setInterval(() => pollSource('mapDrap', fetchDrapMap),          15 * 60_000);   // every 15 min
+  setInterval(() => pollSource('mapAurora', fetchAuroraMap),      15 * 60_000);   // every 15 min
+  setInterval(() => pollSource('solarImage', fetchSolarImages),   15 * 60_000);   // every 15 min
+  setInterval(() => pollSource('mapFoF2', fetchFoF2Map),          15 * 60_000);   // every 15 min
 });
 
 export default app;
