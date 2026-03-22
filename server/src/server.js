@@ -417,11 +417,17 @@ function propagateSatellite(tle) {
 }
 
 async function fetchSatelliteData() {
-  const text = await safeFetchText(
-    'https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle'
+  // CelesTrak can be slow — use 30s timeout
+  const res = await safeFetch(
+    'https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle',
+    30_000
   );
+  let text;
+  try { text = await res.text(); }
+  catch { throw new Error('Failed to read CelesTrak response'); }
+
   const allTLEs = parseTLEs(text);
-  const filtered = allTLEs.filter(t => matchesSatName(t.name));
+  const filtered = allTLEs.filter(t => t.name && matchesSatName(t.name));
 
   // If filtering yields too few, include all amateur sats (capped)
   const tles = filtered.length >= 3 ? filtered : allTLEs.slice(0, 25);
@@ -429,6 +435,13 @@ async function fetchSatelliteData() {
   const results = tles.map(propagateSatellite).filter(Boolean);
   return { satellites: results, count: results.length, timestamp: new Date().toISOString() };
 }
+
+// Fallback satellite data when CelesTrak is unreachable
+const FALLBACK_SATELLITES = [
+  { name: 'ISS (ZARYA)', lat: 0, lng: 0, alt: 420, velocity: 7.66, noradId: 25544 },
+  { name: 'AO-91 (FOX-1B)', lat: 0, lng: 0, alt: 450, velocity: 7.63, noradId: 43017 },
+  { name: 'SO-50 (SAUDISAT-1C)', lat: 0, lng: 0, alt: 690, velocity: 7.51, noradId: 27607 },
+];
 
 app.get('/api/satellites', async (_req, res) => {
   try {
@@ -440,9 +453,10 @@ app.get('/api/satellites', async (_req, res) => {
     res.json(data);
   } catch (err) {
     console.error('[/api/satellites] Error:', err.message);
-    const fallback = cache.satellites.data;
-    if (fallback) return res.json(fallback);
-    res.status(502).json({ error: 'Failed to fetch satellite data' });
+    const cached = cache.satellites?.data;
+    if (cached) return res.json(cached);
+    // Return fallback static data instead of 502
+    res.json({ satellites: FALLBACK_SATELLITES, count: FALLBACK_SATELLITES.length, timestamp: new Date().toISOString(), fallback: true });
   }
 });
 
