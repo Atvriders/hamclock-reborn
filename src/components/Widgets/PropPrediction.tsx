@@ -8,6 +8,7 @@ interface PropPredictionProps {
   userLat: number;
   userLng: number;
   bands: BandConditions | null;
+  dxLocation?: { lat: number; lng: number } | null;
 }
 
 interface BandPrediction {
@@ -84,7 +85,7 @@ function parseLatLng(input: string): { lat: number; lng: number } | null {
 
 // ── Component ──────────────────────────────────────────────────────
 
-const PropPrediction: React.FC<PropPredictionProps> = ({ userLat, userLng, bands }) => {
+const PropPrediction: React.FC<PropPredictionProps> = ({ userLat, userLng, bands, dxLocation }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -92,6 +93,7 @@ const PropPrediction: React.FC<PropPredictionProps> = ({ userLat, userLng, bands
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [resolvedLabel, setResolvedLabel] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevDxRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const fetchPrediction = useCallback(
     async (toLat: number, toLng: number, label: string) => {
@@ -115,6 +117,20 @@ const PropPrediction: React.FC<PropPredictionProps> = ({ userLat, userLng, bands
     },
     [userLat, userLng],
   );
+
+  // Auto-fill input when dxLocation is set from map click
+  useEffect(() => {
+    if (
+      dxLocation &&
+      (prevDxRef.current?.lat !== dxLocation.lat || prevDxRef.current?.lng !== dxLocation.lng)
+    ) {
+      prevDxRef.current = dxLocation;
+      const grid = latLngToGrid(dxLocation.lat, dxLocation.lng);
+      setInput(`${dxLocation.lat.toFixed(2)},${dxLocation.lng.toFixed(2)}`);
+      const label = `${dxLocation.lat.toFixed(1)}, ${dxLocation.lng.toFixed(1)} (${grid})`;
+      fetchPrediction(dxLocation.lat, dxLocation.lng, label);
+    }
+  }, [dxLocation, fetchPrediction]);
 
   const handleSubmit = useCallback(() => {
     const val = input.trim();

@@ -10,6 +10,7 @@ import {
   Tooltip,
   ImageOverlay,
   useMap,
+  useMapEvents,
 } from 'react-leaflet';
 import L from 'leaflet';
 import type { DXSpot, SatellitePosition } from '../../types';
@@ -18,6 +19,7 @@ import {
   getGrayLinePolylines,
   getMaidenheadGrid,
 } from '../../utils/solar';
+import { latLngToGrid } from '../../utils/hamradio';
 
 // ── Fix Leaflet default icon paths (Vite/Webpack strip them) ──────
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -69,6 +71,8 @@ interface WorldMapProps {
   satellites: SatellitePosition[];
   userLat?: number;
   userLng?: number;
+  dxLocation?: { lat: number; lng: number } | null;
+  onMapClick?: (lat: number, lng: number) => void;
 }
 
 // ── Layer visibility state ────────────────────────────────────────
@@ -328,6 +332,165 @@ function SatelliteMarkers({ satellites }: { satellites: SatellitePosition[] }) {
   );
 }
 
+// ── Great circle calculation ──────────────────────────────────────
+function greatCirclePoints(
+  lat1: number, lng1: number, lat2: number, lng2: number, numPoints: number
+): [number, number][] {
+  const toRad = (d: number) => d * Math.PI / 180;
+  const toDeg = (r: number) => r * 180 / Math.PI;
+  const phi1 = toRad(lat1), lam1 = toRad(lng1);
+  const phi2 = toRad(lat2), lam2 = toRad(lng2);
+  const d = 2 * Math.asin(Math.sqrt(
+    Math.sin((phi2 - phi1) / 2) ** 2 +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin((lam2 - lam1) / 2) ** 2
+  ));
+
+  // If points are essentially the same location, return just the two endpoints
+  if (d < 1e-10) return [[lat1, lng1], [lat2, lng2]];
+
+  const points: [number, number][] = [];
+  for (let i = 0; i <= numPoints; i++) {
+    const f = i / numPoints;
+    const A = Math.sin((1 - f) * d) / Math.sin(d);
+    const B = Math.sin(f * d) / Math.sin(d);
+    const x = A * Math.cos(phi1) * Math.cos(lam1) + B * Math.cos(phi2) * Math.cos(lam2);
+    const y = A * Math.cos(phi1) * Math.sin(lam1) + B * Math.cos(phi2) * Math.sin(lam2);
+    const z = A * Math.sin(phi1) + B * Math.sin(phi2);
+    const lat = toDeg(Math.atan2(z, Math.sqrt(x * x + y * y)));
+    const lng = toDeg(Math.atan2(y, x));
+    points.push([lat, lng]);
+  }
+  return points;
+}
+
+/** Calculate distance in km and bearing in degrees between two lat/lng points */
+function calcDistanceBearing(
+  lat1: number, lng1: number, lat2: number, lng2: number
+): { distKm: number; bearing: number } {
+  const toRad = (d: number) => d * Math.PI / 180;
+  const toDeg = (r: number) => r * 180 / Math.PI;
+  const R = 6371; // Earth radius in km
+  const phi1 = toRad(lat1), phi2 = toRad(lat2);
+  const dPhi = toRad(lat2 - lat1);
+  const dLam = toRad(lng2 - lng1);
+
+  // Haversine distance
+  const a = Math.sin(dPhi / 2) ** 2 + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLam / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distKm = R * c;
+
+  // Initial bearing
+  const y = Math.sin(dLam) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLam);
+  const bearing = (toDeg(Math.atan2(y, x)) + 360) % 360;
+
+  return { distKm, bearing };
+}
+
+// ── Sub-component: Map click handler ─────────────────────────────
+function MapClickHandler({ onMapClick }: { onMapClick: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click(e) {
+      onMapClick(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
+// ── DX target marker icon ────────────────────────────────────────
+const dxTargetIcon = L.divIcon({
+  className: 'dx-target-marker',
+  html: `<div style="
+    width:14px;height:14px;border-radius:50%;
+    background:#ff6d00;border:2px solid #fff;
+    box-shadow:0 0 8px #ff6d00, 0 0 16px rgba(255,109,0,0.4);
+  "></div>`,
+  iconSize: [14, 14],
+  iconAnchor: [7, 7],
+});
+
+// ── Sub-component: DE→DX propagation path ────────────────────────
+function DXPropPath({
+  userLat,
+  userLng,
+  dxLocation,
+}: {
+  userLat: number;
+  userLng: number;
+  dxLocation: { lat: number; lng: number };
+}) {
+  const gcPoints = useMemo(
+    () => greatCirclePoints(userLat, userLng, dxLocation.lat, dxLocation.lng, 72),
+    [userLat, userLng, dxLocation.lat, dxLocation.lng]
+  );
+
+  // Split the polyline at the antimeridian to avoid horizontal wrap lines
+  const segments = useMemo(() => {
+    const segs: [number, number][][] = [];
+    let current: [number, number][] = [gcPoints[0]];
+    for (let i = 1; i < gcPoints.length; i++) {
+      const prevLng = gcPoints[i - 1][1];
+      const curLng = gcPoints[i][1];
+      // Detect antimeridian crossing (large longitude jump)
+      if (Math.abs(curLng - prevLng) > 180) {
+        segs.push(current);
+        current = [gcPoints[i]];
+      } else {
+        current.push(gcPoints[i]);
+      }
+    }
+    segs.push(current);
+    return segs;
+  }, [gcPoints]);
+
+  const { distKm, bearing } = useMemo(
+    () => calcDistanceBearing(userLat, userLng, dxLocation.lat, dxLocation.lng),
+    [userLat, userLng, dxLocation.lat, dxLocation.lng]
+  );
+
+  const grid = useMemo(
+    () => latLngToGrid(dxLocation.lat, dxLocation.lng),
+    [dxLocation.lat, dxLocation.lng]
+  );
+
+  return (
+    <>
+      {/* Great circle path segments */}
+      {segments.map((seg, i) => (
+        <Polyline
+          key={`gc-seg-${i}`}
+          positions={seg}
+          pathOptions={{
+            color: '#00d4ff',
+            weight: 2,
+            dashArray: '8,4',
+            opacity: 0.85,
+            interactive: false,
+          }}
+        />
+      ))}
+
+      {/* DX target marker */}
+      <Marker position={[dxLocation.lat, dxLocation.lng]} icon={dxTargetIcon}>
+        <Tooltip
+          direction="top"
+          offset={[0, -10]}
+          permanent
+          className="dx-target-tooltip"
+        >
+          <div style={{ fontFamily: 'monospace', fontSize: '10px', lineHeight: '14px' }}>
+            <strong style={{ color: '#ff6d00' }}>DX</strong>
+            <span style={{ color: '#aaa', marginLeft: 4 }}>{grid}</span>
+            <br />
+            <span style={{ color: '#00d4ff' }}>{Math.round(distKm).toLocaleString()} km</span>
+            <span style={{ color: '#aaa', marginLeft: 6 }}>{Math.round(bearing)}&deg;</span>
+          </div>
+        </Tooltip>
+      </Marker>
+    </>
+  );
+}
+
 // ── Sub-component: Dynamic tile layer (switches base map) ─────────
 function BaseTileLayer({ mapStyle }: { mapStyle: MapStyle }) {
   const map = useMap();
@@ -538,6 +701,8 @@ export default function WorldMap({
   satellites,
   userLat,
   userLng,
+  dxLocation,
+  onMapClick,
 }: WorldMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
@@ -587,13 +752,13 @@ export default function WorldMap({
         .grid-label::before {
           display: none !important;
         }
-        .dx-tooltip, .sat-tooltip {
+        .dx-tooltip, .sat-tooltip, .dx-target-tooltip {
           background: rgba(20, 20, 30, 0.92) !important;
           border: 1px solid rgba(255,255,255,0.15) !important;
           border-radius: 4px !important;
           color: #eee !important;
         }
-        .dx-tooltip::before, .sat-tooltip::before {
+        .dx-tooltip::before, .sat-tooltip::before, .dx-target-tooltip::before {
           border-top-color: rgba(20, 20, 30, 0.92) !important;
         }
         .leaflet-container {
@@ -686,6 +851,18 @@ export default function WorldMap({
               </span>
             </Tooltip>
           </Marker>
+        )}
+
+        {/* Map click handler for setting DX target */}
+        {onMapClick && <MapClickHandler onMapClick={onMapClick} />}
+
+        {/* DE→DX propagation path */}
+        {dxLocation && userLat != null && userLng != null && (
+          <DXPropPath
+            userLat={userLat}
+            userLng={userLng}
+            dxLocation={dxLocation}
+          />
         )}
       </MapContainer>
     </div>

@@ -51,6 +51,7 @@ function AppInner() {
   const userLng = useAppStore((s) => s.userLng);
 
   const [selectedBand, setSelectedBand] = useState<string | null>(null);
+  const [dxLocation, setDxLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useDataFetch();
 
@@ -101,6 +102,8 @@ function AppInner() {
         satellites={satellites}
         userLat={userLat}
         userLng={userLng}
+        dxLocation={dxLocation}
+        onMapClick={(lat, lng) => setDxLocation({ lat, lng })}
       />
 
       {/* Row 2, Col 3: Right sidebar — Band Conditions + DX Cluster + Satellites */}
@@ -118,7 +121,7 @@ function AppInner() {
           <XRayFlux />
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 280 }}>
-          <PropPrediction userLat={userLat} userLng={userLng} bands={bands} />
+          <PropPrediction userLat={userLat} userLng={userLng} bands={bands} dxLocation={dxLocation} />
         </div>
       </div>
 
