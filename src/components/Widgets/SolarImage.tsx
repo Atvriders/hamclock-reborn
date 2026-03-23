@@ -9,6 +9,7 @@ const IMAGE_SOURCES = [
     label: '193',
     desc: 'AIA 193 (EUV)',
     urls: [
+      'https://soho.nascom.nasa.gov/data/realtime/eit_284/512/latest.jpg',
       'https://soho.nascom.nasa.gov/data/realtime/eit_195/512/latest.jpg',
       '/api/solar/proxy/aia193',
       'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg',
@@ -75,7 +76,7 @@ const C = {
 
 // ── Component ───────────────────────────────────────────────────────
 const SolarImage: React.FC = () => {
-  const [activeSource, setActiveSource] = useState<SourceId>('aia193');
+  const [activeSource, setActiveSource] = useState<SourceId>('aia304');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState(false);

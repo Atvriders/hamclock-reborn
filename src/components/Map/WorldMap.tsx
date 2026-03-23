@@ -160,8 +160,9 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
           positions={nightCoords}
           pathOptions={{
             color: 'transparent',
-            fillColor: '#1a2040',
-            fillOpacity: 0.38,
+            fillColor: '#000820',
+            fillOpacity: 0.45,
+            stroke: false,
             interactive: false,
           }}
         />
@@ -371,7 +372,7 @@ function LayerControlPanel({
   mapStyle: MapStyle;
   onMapStyle: (style: MapStyle) => void;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   const checkboxRow = (label: string, key: keyof LayerState) => (
     <label

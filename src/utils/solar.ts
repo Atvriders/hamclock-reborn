@@ -185,46 +185,91 @@ export function getTerminatorCoords(date: Date): [number, number][] {
  * Build a closed polygon covering the night side of the Earth.
  * Returns lat/lng pairs suitable for use as a Leaflet polygon.
  *
- * Strategy: trace the terminator line (elev=0), then close via the dark pole
- * along the map edges. We use the two branches (north and south) to build
- * a proper polygon that doesn't cross diagonally.
+ * Strategy: for each longitude step, compute whether each point is in
+ * night (solar elevation < 0). We sweep longitude from -180 to +180,
+ * collecting the north and south terminator crossings, then build a
+ * polygon that includes the full night hemisphere by tracing the south
+ * branch west-to-east, closing along the dark-pole edge, then the north
+ * branch east-to-west, and closing again along the dark-pole edge.
+ *
+ * When declination >= 0 (northern summer) the south pole is in darkness,
+ * so the night polygon runs: south branch → east edge down to -90 →
+ * bottom edge at -90 → west edge up to north branch → north branch
+ * reversed. This captures the FULL night hemisphere, not just a polar cap.
  */
 export function getNightPolygon(date: Date): [number, number][][] {
   const declination = getSolarDeclination(date);
-  const subSolarLng = getSubSolarLongitude(date);
   const { north, south } = computeTerminatorBranches(date, 0, 360);
 
-  // The dark pole: if dec > 0 (northern summer), south pole is dark
+  if (south.length === 0 && north.length === 0) {
+    // Edge case: no terminator visible (polar day/night at solstice extremes)
+    // Check if the equator at lng=0 is in night
+    const elev = solarElevation(0, 0, date);
+    if (elev < 0) {
+      // Whole world is dark (shouldn't really happen, but be safe)
+      return [[[-90, -180], [-90, 180], [90, 180], [90, -180]]];
+    }
+    return [[]];
+  }
+
+  // The dark pole: if dec >= 0 (northern summer), south pole is dark; else north pole
   const darkPoleLat = declination >= 0 ? -90 : 90;
 
-  // We need to build a polygon that covers the night side.
-  // The terminator has a south branch and a north branch.
-  // For the night polygon:
-  //   - If south pole is dark (dec >= 0):
-  //     The night side is BELOW the south branch of the terminator.
-  //     Polygon: south branch (west to east), then bottom edge east to west.
-  //   - If north pole is dark (dec < 0):
-  //     The night side is ABOVE the north branch of the terminator.
-  //     Polygon: north branch (west to east), then top edge east to west.
+  // Build the night polygon by combining BOTH branches.
+  // The night hemisphere is bounded by:
+  //   - The south branch of the terminator (one edge of the night region)
+  //   - The north branch of the terminator (the other edge)
+  //   - Connected through the dark pole
+  //
+  // For south-pole-dark (dec >= 0):
+  //   Trace south branch W→E, then go to dark pole at east end,
+  //   cross dark pole to west end of north branch (reversed),
+  //   trace north branch E→W, then close back to start via dark pole.
+  //
+  // For north-pole-dark (dec < 0):
+  //   Trace north branch W→E, then go to dark pole at east end,
+  //   cross dark pole to west end of south branch (reversed),
+  //   trace south branch E→W, then close back to start via dark pole.
 
   const nightPoly: [number, number][] = [];
+  const northRev = [...north].reverse();
 
   if (declination >= 0) {
-    // South pole is dark. Night is below the south branch.
-    // Go along south branch west to east
-    nightPoly.push(...south);
-    // Close along the bottom (south pole)
+    // Night covers: south branch → dark pole → north branch reversed → dark pole → close
+    for (const pt of south) nightPoly.push(pt);
+    // East edge: go from last south point down to dark pole
     if (south.length > 0) {
       nightPoly.push([darkPoleLat, south[south.length - 1][1]]);
+    }
+    // Cross dark pole to meet the east end of north branch (which is the start of reversed)
+    if (northRev.length > 0) {
+      nightPoly.push([darkPoleLat, northRev[0][1]]);
+    }
+    // Trace north branch reversed (east to west)
+    for (const pt of northRev) nightPoly.push(pt);
+    // West edge: go from last north-reversed point down to dark pole
+    if (northRev.length > 0) {
+      nightPoly.push([darkPoleLat, northRev[northRev.length - 1][1]]);
+    }
+    // Close back to start
+    if (south.length > 0) {
       nightPoly.push([darkPoleLat, south[0][1]]);
     }
   } else {
-    // North pole is dark. Night is above the north branch.
-    // Go along north branch west to east
-    nightPoly.push(...north);
-    // Close along the top (north pole)
+    // North pole is dark
+    const southRev = [...south].reverse();
+    for (const pt of north) nightPoly.push(pt);
     if (north.length > 0) {
       nightPoly.push([darkPoleLat, north[north.length - 1][1]]);
+    }
+    if (southRev.length > 0) {
+      nightPoly.push([darkPoleLat, southRev[0][1]]);
+    }
+    for (const pt of southRev) nightPoly.push(pt);
+    if (southRev.length > 0) {
+      nightPoly.push([darkPoleLat, southRev[southRev.length - 1][1]]);
+    }
+    if (north.length > 0) {
       nightPoly.push([darkPoleLat, north[0][1]]);
     }
   }
