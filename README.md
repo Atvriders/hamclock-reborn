@@ -52,6 +52,8 @@ Modern, open-source, web-based ham radio dashboard featuring solar data, band co
 
 **General:**
 - UTC + local clocks with callsign display in header
+- Gray line status indicator — shows ACTIVE when your QTH is in the twilight zone (solar elevation 0° to -6°) for enhanced gray line propagation
+- Bottom band bar (80m-6m with center frequencies, clickable band selection)
 - Classic ham radio aesthetic (green on black, monospace numbers)
 - All data from free public APIs — no API keys needed
 - Runs on Raspberry Pi (all models including Zero W)
