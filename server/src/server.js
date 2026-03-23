@@ -523,13 +523,23 @@ async function fetchFoF2Map() {
 // ---------------------------------------------------------------------------
 // Background polling — fetches data and updates cache
 // ---------------------------------------------------------------------------
+// Mutex to prevent overlapping polls
+const pollLocks = {};
+
 async function pollSource(name, fetchFn) {
+  if (pollLocks[name]) {
+    console.warn(`[poll] ${name} already running, skipping`);
+    return;
+  }
+  pollLocks[name] = true;
   try {
     const data = await fetchFn();
     setCache(name, data);
     console.log(`[poll] ${name} updated`);
   } catch (err) {
     console.warn(`[poll] ${name} fetch failed: ${err.message}`);
+  } finally {
+    pollLocks[name] = false;
   }
 }
 

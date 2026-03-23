@@ -76,16 +76,36 @@ export function useDataFetch() {
   useEffect(() => {
     refetch();
 
-    timers.current = [
-      setInterval(fetchSolar, SOLAR_INTERVAL),
-      setInterval(fetchBands, BANDS_INTERVAL),
-      setInterval(fetchDxSpots, DXSPOTS_INTERVAL),
-      setInterval(fetchSatellites, SATELLITES_INTERVAL),
-    ];
+    const startTimers = () => {
+      timers.current = [
+        setInterval(fetchSolar, SOLAR_INTERVAL),
+        setInterval(fetchBands, BANDS_INTERVAL),
+        setInterval(fetchDxSpots, DXSPOTS_INTERVAL),
+        setInterval(fetchSatellites, SATELLITES_INTERVAL),
+      ];
+    };
 
-    return () => {
+    const stopTimers = () => {
       timers.current.forEach(clearInterval);
       timers.current = [];
+    };
+
+    // Pause polling when tab is hidden, resume when visible
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopTimers();
+      } else {
+        refetch(); // fetch fresh data when tab becomes visible
+        startTimers();
+      }
+    };
+
+    startTimers();
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      stopTimers();
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
