@@ -282,13 +282,10 @@ function AppInner() {
         icon: '\u2600\uFE0F',
         content: (
           <div style={{ overflow: 'auto' }}>
-            {solar ? (
-              <SolarPanel data={solar} />
-            ) : (
-              <div style={{ padding: 10, fontSize: 11, color: '#4a5568', fontStyle: 'italic' }}>
-                Awaiting solar data...
-              </div>
-            )}
+            {solar ? <SolarPanel data={solar} /> : <div>Awaiting data...</div>}
+            <div style={{ borderTop: '1px solid #1a2332' }}>
+              <SolarImage />
+            </div>
           </div>
         ),
       },
@@ -298,6 +295,9 @@ function AppInner() {
         content: (
           <div style={{ overflow: 'auto' }}>
             <BandPanel data={bands} />
+            <div style={{ borderTop: '1px solid #1a2332' }}>
+              <XRayFlux />
+            </div>
           </div>
         ),
       },
@@ -311,21 +311,34 @@ function AppInner() {
         ),
       },
       {
-        label: 'More',
-        icon: '\uD83D\uDE80',
+        label: 'Space',
+        icon: '\uD83C\uDF0D',
+        content: (
+          <div style={{ overflow: 'auto' }}>
+            <EnlilWidget />
+            <div style={{ borderTop: '1px solid #1a2332' }}>
+              <DRAPWidget />
+            </div>
+            <div style={{ borderTop: '1px solid #1a2332' }}>
+              <AuroraWidget />
+            </div>
+            <div style={{ borderTop: '1px solid #1a2332' }}>
+              <KC2GWidget />
+            </div>
+          </div>
+        ),
+      },
+      {
+        label: 'Tools',
+        icon: '\uD83D\uDD27',
         content: (
           <div style={{ overflow: 'auto' }}>
             <ISSPass userLat={userLat} userLng={userLng} />
             <div style={{ borderTop: '1px solid #1a2332' }}>
-              <XRayFlux />
+              <HRDLogGraph />
             </div>
             <div style={{ borderTop: '1px solid #1a2332' }}>
-              <PropPrediction
-                userLat={userLat}
-                userLng={userLng}
-                bands={bands}
-                dxLocation={dxLocation}
-              />
+              <PropPrediction userLat={userLat} userLng={userLng} bands={bands} dxLocation={dxLocation} />
             </div>
           </div>
         ),
