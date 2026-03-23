@@ -1,37 +1,160 @@
 # HamClock Reborn
 
-Modern web-based replacement for HamClock (ending June 2026). A real-time ham radio dashboard featuring solar data, band conditions, DX cluster, satellite tracking, and an interactive world map — all running in your browser.
+Modern web-based replacement for HamClock (ending June 2026). A real-time ham radio dashboard featuring solar data, band conditions, DX cluster, satellite tracking, propagation prediction, and an interactive world map — all running in your browser.
 
 ## Features
 
-**Dashboard Panels:**
-- **Callsign Setup Screen** — First-launch setup with callsign validation, auto-location from 100+ prefix→country mappings, Maidenhead grid input
-- **Solar Data Panel** — SFI, Kp index, SSN, X-ray flux class, solar wind speed/Bz, A-index, geomagnetic storm level
-- **Solar Image Widget** — Real-time NASA SDO sun images (AIA 193/304/171, HMI Magnetogram/Intensitygram), circular crop, click-to-expand
-- **HF Band Conditions** — 80m through 10m propagation table with day/night Good/Fair/Poor ratings
-- **DX Cluster** — Live DX spots from DXWatch with frequency, callsign, band coloring, mode detection
-- **Satellite Tracking** — Real-time positions of amateur satellites (ISS, AO-91, SO-50, etc.) via SGP4 propagation
-- **Propagation Forecast Bar** — HF/VHF conditions, open bands, MUF, satellite pass info
+**Setup:**
+- Callsign setup screen with 134 prefix-to-country auto-lookup (auto-fills lat/lng and Maidenhead grid)
+- Skippable setup for anonymous use
+
+**Solar and Space Weather:**
+- Solar data panel — SFI, SSN, X-Ray flux class, Kp bar graph, A-Index, Solar Wind speed
+- SDO Solar images — 5 types (AIA 193/304/171, HMI Magnetogram, HMI Intensitygram), circular crop, click to expand, SOHO fallback URLs
+- WSA-Enlil solar wind prediction widget
+- DRAP D-Region Absorption Prediction widget
+- Aurora oval forecast widget (NOAA northern hemisphere image + JSON data)
+- X-Ray flux plot (NOAA GOES, embedded via iframe)
+
+**Propagation:**
+- KC2G MUF propagation map widget
+- HF band conditions panel (80m-10m, day/night, Good/Fair/Poor colored dots)
+- HRDLog propagation graph widget
+- VOACAP-style propagation prediction (DE to DX, per-band reliability table with distance, bearing, grid squares, SNR, best time)
+- Propagation heat map overlay on map (band-specific, grid-cell reliability shading from QTH)
+
+**DX and Satellites:**
+- DX Cluster panel (3 fallback sources: DXWatch, HA8TKS, HamQTH; up to 30 spots; band-colored, mode detection)
+- ISS pass prediction (countdown timer, max elevation, AOS/LOS azimuth, duration)
+- Satellite tracking (ISS, AO-91, SO-50, FO-99, CAS-4A/B, IO-117, and more via SGP4 propagation)
 
 **World Map (Leaflet):**
-- Day/night terminator overlay (updates every 60s)
-- Gray line (dawn/dusk propagation band)
+- Day/night overlay (grid rectangle approach, updates every 60s)
+- Gray line (dawn/dusk terminator + twilight polylines)
+- 188 callsign prefix labels (zoom-scaled: major countries at zoom 2+, all at zoom 6+)
 - Maidenhead grid squares (toggleable)
 - DX spot markers with callsign tooltips
 - Satellite position markers
 - QTH home location marker
-- **MUF Map overlay** (KC2G Maximum Usable Frequency)
-- **DRAP overlay** (NOAA D-Region Absorption Prediction)
-- **Aurora oval overlay** (NOAA northern hemisphere)
-- **4 map styles**: Dark, Satellite, Terrain, Light
-- **Layer control panel** with toggle checkboxes
+- DE-to-DX great circle path (click map to set DX endpoint)
+- Propagation heat map overlay (band-specific reliability from QTH)
+- 4 map styles: Dark, Satellite, Terrain, Light
+- Layer control panel with toggle checkboxes (Day/Night, Gray Line, MUF Map, Grid Squares, Prefixes)
+
+**Layout:**
+- Desktop: CSS Grid 3-column layout (left sidebar, center map, right sidebar) with header and bottom band bar
+- Left sidebar: Solar panel + tabbed widgets (Enlil/KC2G/DRAP, SDO Solar/Aurora)
+- Right sidebar: Band conditions + DX cluster + ISS pass + tabbed widgets (X-Ray/HRDLog/Propagation)
+- Bottom band bar (80m-6m with center frequencies)
+- Mobile responsive: 5-tab layout (Solar, Bands, DX, Space, Tools) with compact header and half-screen map
+- Tabbed sidebar widgets for space-efficient navigation
+- ErrorBoundary for crash protection
 
 **General:**
-- UTC + local clocks with callsign display
+- UTC + local clocks with callsign display in header
 - Classic ham radio aesthetic (green on black, monospace numbers)
-- ErrorBoundary for crash protection
 - All data from free public APIs — no API keys needed
 - Runs on Raspberry Pi (all models including Zero W)
+
+## API Endpoints
+
+| Endpoint | Description | Server Cache TTL | Client Poll |
+|----------|-------------|-----------------|-------------|
+| `GET /api/solar` | Solar/space weather (Kp, SFI, SSN, A-Index, X-Ray, Solar Wind) | 5 min | 5 min |
+| `GET /api/bands` | HF band conditions (HamQSL XML) | 10 min | 10 min |
+| `GET /api/dxspots` | DX cluster spots (3 fallback sources) | 1 min | 60 sec |
+| `GET /api/satellites` | Satellite positions via SGP4 (CelesTrak TLEs) | 5 min | 30 sec |
+| `GET /api/iss-pass?lat=&lng=` | ISS next pass prediction (AOS, LOS, max el, azimuth) | — | on-demand |
+| `GET /api/propagation?fromLat=&fromLng=&toLat=&toLng=&band=` | HF propagation prediction (per-band reliability, SNR, bearing) | — | on-demand |
+| `GET /api/maps/muf` | MUF propagation map URL (NOAA CTIPE, KC2G fallback) | 15 min | — |
+| `GET /api/maps/drap` | D-Region Absorption map URL | 15 min | — |
+| `GET /api/maps/aurora` | Aurora oval data + image URL | 15 min | — |
+| `GET /api/maps/foF2` | Critical frequency (foF2) map URL | 15 min | — |
+| `GET /api/solar/image` | NASA SDO image URLs (AIA 193, HMI) | 15 min | — |
+| `GET /api/solar/proxy/:type` | Proxy SDO images to avoid CORS (aia193, aia304, aia171, hmi-mag, hmi-int) | — | on-demand |
+| `GET /api/status` | Data source load status and cache age | — | — |
+| `GET /api/health` | Server health check + cache status summary | — | — |
+
+## Data Sources
+
+All free, no API keys required:
+
+| Source | Data | Refresh |
+|--------|------|---------|
+| NOAA SWPC | Kp index, SFI, SSN, X-ray flux, solar wind speed | 5 min |
+| HamQSL | HF band conditions (80m-10m), A-Index, signal noise | 10 min |
+| DXWatch / HA8TKS / HamQTH | DX cluster spots (3 fallback sources) | 1 min |
+| CelesTrak | Amateur satellite TLEs (SGP4 propagation) | 5 min |
+| NASA SDO | Real-time solar images (5 types) | 15 min |
+| SOHO | Solar image fallbacks (EIT 284/195/304/171) | 15 min |
+| NOAA SWPC | MUF, DRAP, Aurora, foF2 maps | 15 min |
+| KC2G | MUF propagation map (SVG fallback) | 15 min |
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite |
+| State | Zustand |
+| Backend | Express.js, Node.js |
+| Maps | Leaflet, react-leaflet, CartoDB/ESRI/OpenTopoMap tiles |
+| Satellites | satellite.js (SGP4 propagation) |
+| Date utils | date-fns, date-fns-tz |
+| Deployment | Docker (multi-arch amd64+arm64) + GitHub Actions to GHCR |
+
+## Architecture
+
+```
+hamclock-reborn/
+├── src/
+│   ├── App.tsx                             # CSS Grid layout, mobile tabs, setup gate, ErrorBoundary
+│   ├── main.tsx                            # React entry point
+│   ├── components/
+│   │   ├── SetupScreen.tsx                 # Callsign entry, 134-prefix auto-lookup, grid input
+│   │   ├── Map/
+│   │   │   └── WorldMap.tsx                # Leaflet map, day/night, gray line, grid, prefixes,
+│   │   │                                   #   DX markers, satellites, QTH, DE→DX path, heat map,
+│   │   │                                   #   layer control, 4 map styles
+│   │   ├── Panels/
+│   │   │   ├── Header.tsx                  # UTC/local clocks + callsign display
+│   │   │   ├── SolarPanel.tsx              # SFI, Kp bar, SSN, X-ray, wind, A-index
+│   │   │   ├── BandPanel.tsx               # HF band conditions table (day/night)
+│   │   │   ├── DXPanel.tsx                 # DX cluster spots list
+│   │   │   ├── SatellitePanel.tsx          # Satellite tracking panel
+│   │   │   └── PropagationBar.tsx          # Bottom band bar (80m-6m with frequencies)
+│   │   └── Widgets/
+│   │       ├── SolarImage.tsx              # NASA SDO sun images (5 types, SOHO fallback)
+│   │       ├── XRayFlux.tsx                # X-Ray flux plot (NOAA GOES)
+│   │       ├── EnlilWidget.tsx             # WSA-Enlil solar wind prediction
+│   │       ├── DRAPWidget.tsx              # D-Region Absorption Prediction
+│   │       ├── AuroraWidget.tsx            # Aurora oval forecast
+│   │       ├── KC2GWidget.tsx              # KC2G MUF propagation map
+│   │       ├── HRDLogGraph.tsx             # HRDLog propagation graph
+│   │       ├── ISSPass.tsx                 # ISS pass prediction + countdown
+│   │       └── PropPrediction.tsx          # VOACAP-style propagation prediction
+│   ├── hooks/
+│   │   ├── useStore.ts                     # Zustand state management
+│   │   ├── useDataFetch.ts                 # API polling (solar, bands, DX, satellites)
+│   │   └── useIsMobile.ts                  # Responsive breakpoint hook
+│   ├── utils/
+│   │   ├── solar.ts                        # Terminator/gray line math, Maidenhead grid
+│   │   └── hamradio.ts                     # Grid conversions, callsign prefix lookup
+│   ├── types/index.ts                      # All TypeScript interfaces
+│   └── vite-env.d.ts                       # Vite type declarations
+├── server/
+│   ├── src/server.js                       # Express API server (all endpoints, caching, SGP4)
+│   ├── index.js                            # Server entry point (npm start)
+│   ├── Dockerfile                          # Backend container (node:3013)
+│   └── package.json                        # Server dependencies
+├── Dockerfile                              # Frontend container (nginx:3012)
+├── docker-compose.yml                      # Both services + DNS fix
+├── nginx.conf                              # Proxy /api → backend + SPA routing
+├── package.json                            # Frontend deps + dev scripts
+├── tsconfig.json
+├── vite.config.ts
+└── .github/workflows/
+    └── docker-publish.yml                  # Multi-arch CI/CD to GHCR
+```
 
 ## Quick Start
 
@@ -46,6 +169,8 @@ docker-compose up -d
 
 Pre-built multi-arch images (amd64 + arm64) available from GHCR.
 
+**Note:** The `docker-compose.yml` includes explicit DNS servers (`8.8.8.8`, `1.1.1.1`) on the backend container to avoid DNS resolution failures that can occur with some Docker network configurations.
+
 ### Option 2: Manual Install (Any Linux/Mac/Windows)
 
 ```bash
@@ -59,6 +184,17 @@ cd server && npm install && cd ..
 # Start both (frontend dev server + backend)
 npm run dev:all
 ```
+
+### npm Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm run dev` | Vite dev server (frontend only) |
+| `npm run build` | TypeScript check + Vite production build |
+| `npm run preview` | Preview production build |
+| `npm run server` | Start backend server only |
+| `npm run start` | Start backend + frontend concurrently |
+| `npm run dev:all` | Start backend + frontend concurrently (alias) |
 
 ### Production Build
 
@@ -171,82 +307,6 @@ docker-compose up -d
   ```
 - Consider building on a faster machine and copying `dist/`
 
-## Data Sources
-
-All free, no API keys required:
-
-| Source | Data | Refresh |
-|--------|------|---------|
-| NOAA SWPC | Solar flux, Kp, SSN, X-ray, solar wind | 5 min |
-| HamQSL | HF band conditions (80m-10m) | 10 min |
-| DXWatch | DX cluster spots | 1 min |
-| CelesTrak | Amateur satellite TLEs (SGP4) | 15 min |
-| NASA SDO | Real-time solar images (5 types) | 15 min |
-| KC2G | MUF propagation map | 15 min |
-| NOAA SWPC | DRAP, Aurora, foF2 maps | 15 min |
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | React 18, TypeScript, Vite, Leaflet |
-| State | Zustand |
-| Backend | Express.js, Node.js |
-| Satellites | satellite.js (SGP4) |
-| Maps | react-leaflet, CartoDB/ESRI/OpenTopoMap tiles |
-| Deployment | Docker (multi-arch) + GitHub Actions → GHCR |
-
-## Architecture
-
-```
-hamclock-reborn/
-├── src/
-│   ├── App.tsx                        # CSS Grid dashboard + setup flow
-│   ├── components/
-│   │   ├── SetupScreen.tsx            # Callsign entry (first launch)
-│   │   ├── Map/WorldMap.tsx           # Leaflet map + all overlays
-│   │   ├── Panels/
-│   │   │   ├── Header.tsx             # UTC/local clocks + callsign
-│   │   │   ├── SolarPanel.tsx         # SFI, Kp, SSN, X-ray, wind
-│   │   │   ├── BandPanel.tsx          # HF band conditions table
-│   │   │   ├── DXPanel.tsx            # DX cluster spots
-│   │   │   ├── SatellitePanel.tsx     # Satellite tracking
-│   │   │   └── PropagationBar.tsx     # Propagation forecast
-│   │   └── Widgets/
-│   │       └── SolarImage.tsx         # NASA SDO sun images
-│   ├── hooks/
-│   │   ├── useStore.ts                # Zustand state management
-│   │   └── useDataFetch.ts            # API polling (4 endpoints)
-│   ├── utils/
-│   │   ├── solar.ts                   # Terminator/gray line math
-│   │   └── hamradio.ts                # Grid conversions, prefix lookup
-│   └── types/index.ts                 # All TypeScript interfaces
-├── server/
-│   ├── index.js                       # Server (npm start entry)
-│   └── src/server.js                  # Server (Docker entry) + map APIs
-├── Dockerfile                         # Frontend (nginx:3012)
-├── server/Dockerfile                  # Backend (node:3013)
-├── docker-compose.yml                 # Both services
-├── nginx.conf                         # Proxy + SPA routing
-└── .github/workflows/
-    └── docker-publish.yml             # Multi-arch CI/CD to GHCR
-```
-
-## API Endpoints
-
-| Endpoint | Description | Refresh |
-|----------|-------------|---------|
-| `GET /api/solar` | Solar/space weather data | 5 min |
-| `GET /api/bands` | HF band conditions | 10 min |
-| `GET /api/dxspots` | DX cluster spots | 1 min |
-| `GET /api/satellites` | Satellite positions (SGP4) | 15 min |
-| `GET /api/maps/muf` | MUF propagation map URL | 15 min |
-| `GET /api/maps/drap` | D-Region Absorption map URL | 15 min |
-| `GET /api/maps/aurora` | Aurora oval data + image | 15 min |
-| `GET /api/maps/foF2` | Critical frequency map URL | 15 min |
-| `GET /api/solar/image` | NASA SDO image URLs | 15 min |
-| `GET /api/health` | Server health check | — |
-
 ## Troubleshooting
 
 **No data showing:**
@@ -265,6 +325,10 @@ hamclock-reborn/
 **502 Bad Gateway:**
 - Backend not running or still starting
 - In Docker: check `docker logs hamclock-backend`
+
+**Docker DNS issues:**
+- The backend container uses explicit DNS (`8.8.8.8`, `1.1.1.1`) in `docker-compose.yml`
+- If upstream API fetches fail, check `docker logs hamclock-backend` for DNS errors
 
 ## Why "Reborn"?
 
