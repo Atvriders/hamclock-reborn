@@ -32,7 +32,7 @@ type MapStyle = 'dark' | 'satellite' | 'terrain' | 'light';
 
 const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoom: number; attribution?: string }> = {
   dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
     subdomains: 'abcd',
     maxZoom: 19,
   },
@@ -1047,7 +1047,10 @@ export default function WorldMap({
           border-top-color: rgba(20, 20, 30, 0.92) !important;
         }
         .leaflet-container {
-          background: #0d1117 !important;
+          background: #1a1f2e !important;
+        }
+        .leaflet-tile-pane {
+          filter: brightness(1.4) saturate(0.3) !important;
         }
         .prefix-label {
           background: transparent !important;
