@@ -328,7 +328,9 @@ async function fetchDxSpots() {
   // Try HamQTH first (works reliably, CSV format)
   try {
     const text = await safeFetchText('https://www.hamqth.com/dxc_csv.php?limit=30');
+    console.log(`[DX] HamQTH raw response (${text.length} chars): ${text.substring(0, 200)}`);
     const spots = parseHamQTH(text);
+    console.log(`[DX] HamQTH parsed ${spots.length} spots`);
     if (spots.length > 0) {
       console.log(`[DX] Got ${spots.length} spots from HamQTH`);
       return spots;
@@ -340,13 +342,29 @@ async function fetchDxSpots() {
   // Fallback: DXWatch (may redirect)
   try {
     const text = await safeFetchText('https://www.dxwatch.com/dxsd1/s.php?s=0&r=50');
+    console.log(`[DX] DXWatch raw response (${text.length} chars): ${text.substring(0, 200)}`);
     const spots = parseDxCluster(text);
+    console.log(`[DX] DXWatch parsed ${spots.length} spots`);
     if (spots.length > 0) {
       console.log(`[DX] Got ${spots.length} spots from DXWatch`);
       return spots;
     }
   } catch (err) {
     console.error('[DX] DXWatch failed:', err.message);
+  }
+
+  // Fallback: HA8TKS
+  try {
+    const text = await safeFetchText('https://www.ha8tks.hu/dx/dxc_csv.php?limit=30');
+    console.log(`[DX] HA8TKS raw response (${text.length} chars): ${text.substring(0, 200)}`);
+    const spots = parseHamQTH(text); // Same CSV format as HamQTH
+    console.log(`[DX] HA8TKS parsed ${spots.length} spots`);
+    if (spots.length > 0) {
+      console.log(`[DX] Got ${spots.length} spots from HA8TKS`);
+      return spots;
+    }
+  } catch (err) {
+    console.error('[DX] HA8TKS failed:', err.message);
   }
 
   console.log('[DX] All sources failed, returning empty');
@@ -570,8 +588,13 @@ async function pollSource(name, fetchFn) {
   pollLocks[name] = true;
   try {
     const data = await fetchFn();
-    setCache(name, data);
-    console.log(`[poll] ${name} updated`);
+    // Don't overwrite good data with empty arrays
+    if (Array.isArray(data) && data.length === 0 && cache[name].data && Array.isArray(cache[name].data) && cache[name].data.length > 0) {
+      console.warn(`[poll] ${name} returned empty, keeping ${cache[name].data.length} cached items`);
+    } else {
+      setCache(name, data);
+      console.log(`[poll] ${name} updated${Array.isArray(data) ? ` (${data.length} items)` : ''}`);
+    }
   } catch (err) {
     console.warn(`[poll] ${name} fetch failed: ${err.message}`);
   } finally {
@@ -594,6 +617,24 @@ function serveCached(key, emptyFallback) {
 app.get('/api/solar', serveCached('solar', { status: 'loading' }));
 app.get('/api/bands', serveCached('bands', { status: 'loading' }));
 app.get('/api/dxspots', serveCached('dxspots', []));
+
+// Debug endpoint — test DX fetch live
+app.get('/api/debug/dxspots', async (_req, res) => {
+  try {
+    const text = await safeFetchText('https://www.hamqth.com/dxc_csv.php?limit=5');
+    const spots = parseHamQTH(text);
+    res.json({
+      rawLength: text.length,
+      rawPreview: text.substring(0, 300),
+      parsedCount: spots.length,
+      spots: spots.slice(0, 3),
+      cacheCount: Array.isArray(cache.dxspots.data) ? cache.dxspots.data.length : 'not-array',
+      cacheAge: cacheAge('dxspots'),
+    });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
 app.get('/api/satellites', serveCached('satellites', { satellites: [], count: 0, status: 'loading' }));
 app.get('/api/maps/muf', serveCached('mapMuf', { status: 'loading' }));
 app.get('/api/maps/drap', serveCached('mapDrap', { status: 'loading' }));
