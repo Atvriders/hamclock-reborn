@@ -15,7 +15,7 @@ app.use(express.json());
 const cache = {
   solar:      { data: null, ts: 0, ttl: 5 * 60_000 },
   bands:      { data: null, ts: 0, ttl: 10 * 60_000 },
-  dxspots:    { data: null, ts: 0, ttl: 1 * 60_000 },
+  dxspots:    { data: null, ts: 0, ttl: 2 * 60_000 },
   satellites: { data: null, ts: 0, ttl: 5 * 60_000 },
   mapMuf:     { data: null, ts: 0, ttl: 15 * 60_000 },
   mapDrap:    { data: null, ts: 0, ttl: 15 * 60_000 },
@@ -682,23 +682,7 @@ app.get('/api/solar', serveCached('solar', { status: 'loading' }));
 app.get('/api/bands', serveCached('bands', { status: 'loading' }));
 app.get('/api/dxspots', serveCached('dxspots', []));
 
-// Debug endpoint — test DX fetch live
-app.get('/api/debug/dxspots', async (_req, res) => {
-  try {
-    const text = await safeFetchText('https://www.hamqth.com/dxc_csv.php?limit=5');
-    const spots = parseHamQTH(text);
-    res.json({
-      rawLength: text.length,
-      rawPreview: text.substring(0, 300),
-      parsedCount: spots.length,
-      spots: spots.slice(0, 3),
-      cacheCount: Array.isArray(cache.dxspots.data) ? cache.dxspots.data.length : 'not-array',
-      cacheAge: cacheAge('dxspots'),
-    });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
+
 app.get('/api/satellites', serveCached('satellites', { satellites: [], count: 0, status: 'loading' }));
 app.get('/api/maps/muf', serveCached('mapMuf', { status: 'loading' }));
 app.get('/api/maps/drap', serveCached('mapDrap', { status: 'loading' }));
@@ -826,8 +810,11 @@ app.get('/api/iss-pass', (req, res) => {
 
 // ---------------------------------------------------------------------------
 // Endpoint: /api/solar/proxy/:type — Proxy SDO solar images (avoids CORS)
-// Binary data — proxy on-demand is fine
+// Server-side cache to avoid hammering NASA SDO
 // ---------------------------------------------------------------------------
+const proxyImageCache = {}; // { type: { buffer, contentType, ts } }
+const PROXY_CACHE_TTL = 10 * 60_000; // 10 minutes
+
 app.get('/api/solar/proxy/:type', async (req, res) => {
   const IMAGE_URLS = {
     'aia193': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg',
@@ -837,30 +824,45 @@ app.get('/api/solar/proxy/:type', async (req, res) => {
     'hmi-int': 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_HMIIC.jpg',
   };
 
-  const url = IMAGE_URLS[req.params.type];
+  const type = req.params.type;
+  const url = IMAGE_URLS[type];
   if (!url) return res.status(404).json({ error: 'Unknown image type' });
+
+  // Serve from server cache if fresh
+  const cached = proxyImageCache[type];
+  if (cached && (Date.now() - cached.ts) < PROXY_CACHE_TTL) {
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=600');
+    return res.send(cached.buffer);
+  }
 
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000); // 15s — NASA can be slow
+    const timer = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    res.setHeader('Content-Type', response.headers.get('content-type') || 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=600'); // 10 min cache
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const buffer = Buffer.from(await response.arrayBuffer());
 
-    // Pipe the image data through
-    const buffer = await response.arrayBuffer();
-    res.send(Buffer.from(buffer));
+    // Cache on server
+    proxyImageCache[type] = { buffer, contentType, ts: Date.now() };
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=600');
+    res.send(buffer);
   } catch (err) {
     const isAbort = err.name === 'AbortError';
-    console.error(`[solar-proxy] Failed to proxy ${req.params.type}: ${isAbort ? 'Request timed out (15s)' : err.message}`);
-    res.status(502).json({
-      error: 'Failed to fetch solar image',
-      detail: isAbort ? 'Upstream request to NASA SDO timed out' : err.message,
-    });
+    console.error(`[solar-proxy] Failed to proxy ${type}: ${isAbort ? 'timeout' : err.message}`);
+    // Serve stale cache if available
+    if (cached) {
+      res.setHeader('Content-Type', cached.contentType);
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      return res.send(cached.buffer);
+    }
+    res.status(502).json({ error: 'Failed to fetch solar image' });
   }
 });
 
@@ -1110,7 +1112,7 @@ app.listen(PORT, () => {
   // Background polling intervals
   setInterval(() => pollSource('solar', fetchSolarData),           5 * 60_000);   // every 5 min
   setInterval(() => pollSource('bands', fetchBandData),           10 * 60_000);   // every 10 min
-  setInterval(() => pollSource('dxspots', fetchDxSpots),           1 * 60_000);   // every 60 sec
+  setInterval(() => pollSource('dxspots', fetchDxSpots),           2 * 60_000);   // every 2 min
   setInterval(() => pollSource('satellites', fetchSatelliteData),  5 * 60_000);   // every 5 min
   setInterval(() => pollSource('mapMuf', fetchMufMap),            15 * 60_000);   // every 15 min
   setInterval(() => pollSource('mapDrap', fetchDrapMap),          15 * 60_000);   // every 15 min

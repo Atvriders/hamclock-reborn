@@ -5,7 +5,7 @@ import type { SolarData, BandConditions, DXSpot, SatellitePosition } from '../ty
 // Polling intervals (ms)
 const SOLAR_INTERVAL = 5 * 60 * 1000;       // 5 minutes
 const BANDS_INTERVAL = 10 * 60 * 1000;      // 10 minutes
-const DXSPOTS_INTERVAL = 60 * 1000;         // 60 seconds
+const DXSPOTS_INTERVAL = 2 * 60 * 1000;     // 2 minutes
 const SATELLITES_INTERVAL = 30 * 1000;      // 30 seconds
 
 async function safeFetch<T>(url: string): Promise<T | null> {
