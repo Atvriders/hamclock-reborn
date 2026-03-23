@@ -988,6 +988,62 @@ function predictBand(bandName, bandConditions, distKm, utcHour) {
 }
 
 // ---------------------------------------------------------------------------
+// Endpoint: GET /api/callsign/:call — lookup callsign location via free APIs
+// ---------------------------------------------------------------------------
+app.get('/api/callsign/:call', async (req, res) => {
+  const call = (req.params.call || '').toUpperCase().trim();
+  if (!call || call.length < 3) {
+    return res.status(400).json({ error: 'Invalid callsign' });
+  }
+
+  // Try callook.info first (US callsigns, free, no registration)
+  try {
+    const data = await safeFetchJson(`https://callook.info/${encodeURIComponent(call)}/json`);
+    if (data && data.status === 'VALID' && data.location) {
+      const lat = parseFloat(data.location.latitude);
+      const lng = parseFloat(data.location.longitude);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return res.json({
+          callsign: call,
+          grid: data.location.gridsquare || null,
+          lat, lng,
+          name: data.name || null,
+          country: data.address?.line2 || null,
+          source: 'callook',
+        });
+      }
+    }
+  } catch (err) {
+    console.warn(`[callsign] callook failed for ${call}: ${err.message}`);
+  }
+
+  // Fallback: HamDB.org (international, free, no registration)
+  try {
+    const data = await safeFetchJson(`https://api.hamdb.org/${encodeURIComponent(call)}/json/hamclock`);
+    if (data?.hamdb?.callsign?.grid) {
+      const cs = data.hamdb.callsign;
+      const lat = parseFloat(cs.lat);
+      const lng = parseFloat(cs.lon);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return res.json({
+          callsign: call,
+          grid: cs.grid || null,
+          lat, lng,
+          name: [cs.fname, cs.name].filter(Boolean).join(' ') || null,
+          country: cs.country || null,
+          source: 'hamdb',
+        });
+      }
+    }
+  } catch (err) {
+    console.warn(`[callsign] hamdb failed for ${call}: ${err.message}`);
+  }
+
+  // Not found in any database
+  res.json({ callsign: call, grid: null, lat: null, lng: null, name: null, country: null, source: null });
+});
+
+// ---------------------------------------------------------------------------
 // Endpoint: GET /api/propagation — predict HF propagation between two points
 // ---------------------------------------------------------------------------
 app.get('/api/propagation', (req, res) => {

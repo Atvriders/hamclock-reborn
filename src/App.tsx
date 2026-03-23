@@ -269,14 +269,32 @@ function AppInner() {
 
   useDataFetch();
 
-  // Update callsign + grid/location from prefix lookup
+  // Update callsign + grid/location from live database lookup
   const handleCallsignChange = useCallback((cs: string) => {
     setCallsign(cs);
-    const loc = callsignPrefixToLocation(cs);
-    if (loc) {
-      setUserLocation(loc.lat, loc.lng);
-      setGridSquare(latLngToGrid(loc.lat, loc.lng));
-    }
+    // Try live API for exact grid
+    fetch(`/api/callsign/${encodeURIComponent(cs)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.lat != null && data?.lng != null) {
+          setUserLocation(data.lat, data.lng);
+          setGridSquare(data.grid || latLngToGrid(data.lat, data.lng));
+        } else {
+          // Fallback to prefix lookup
+          const loc = callsignPrefixToLocation(cs);
+          if (loc) {
+            setUserLocation(loc.lat, loc.lng);
+            setGridSquare(latLngToGrid(loc.lat, loc.lng));
+          }
+        }
+      })
+      .catch(() => {
+        const loc = callsignPrefixToLocation(cs);
+        if (loc) {
+          setUserLocation(loc.lat, loc.lng);
+          setGridSquare(latLngToGrid(loc.lat, loc.lng));
+        }
+      });
   }, [setCallsign, setUserLocation, setGridSquare]);
 
   // Derive which bands are currently open (day = Good or Fair)

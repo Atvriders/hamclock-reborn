@@ -206,22 +206,46 @@ export default function SetupScreen({ onComplete }: SetupScreenProps) {
     inputRef.current?.focus();
   }, []);
 
-  // Auto-lookup when callsign changes
+  // Auto-lookup when callsign changes — try live API first, fallback to prefix
   useEffect(() => {
     if (callsign.length >= 3 && isValidCallsign(callsign)) {
       setCallsignError('');
-      const result = lookupPrefixCoords(callsign);
-      if (result) {
-        setCountry(result.country);
-        setLat(result.lat);
-        setLng(result.lng);
-        const calculatedGrid = coordsToGrid(result.lat, result.lng);
-        setAutoGrid(calculatedGrid);
-        // Only auto-fill grid if the user hasn't manually edited it
-        if (!userEditedGrid) {
-          setGrid(calculatedGrid);
+
+      // Try live callsign database lookup (returns actual registered address grid)
+      let cancelled = false;
+      fetch(`/api/callsign/${encodeURIComponent(callsign)}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (cancelled) return;
+          if (data?.lat != null && data?.lng != null) {
+            setCountry(data.country || data.name || '');
+            setLat(data.lat);
+            setLng(data.lng);
+            const grid4 = data.grid ? data.grid.slice(0, 6) : coordsToGrid(data.lat, data.lng);
+            setAutoGrid(grid4);
+            if (!userEditedGrid) setGrid(grid4);
+            return;
+          }
+          // API returned no location — fallback to prefix
+          applyPrefixFallback();
+        })
+        .catch(() => {
+          if (!cancelled) applyPrefixFallback();
+        });
+
+      function applyPrefixFallback() {
+        const result = lookupPrefixCoords(callsign);
+        if (result) {
+          setCountry(result.country);
+          setLat(result.lat);
+          setLng(result.lng);
+          const calculatedGrid = coordsToGrid(result.lat, result.lng);
+          setAutoGrid(calculatedGrid);
+          if (!userEditedGrid) setGrid(calculatedGrid);
         }
       }
+
+      return () => { cancelled = true; };
     } else if (callsign.length > 0 && callsign.length >= 3) {
       setCallsignError('Invalid format (e.g. W1AW, VK3ABC)');
       setCountry('');
