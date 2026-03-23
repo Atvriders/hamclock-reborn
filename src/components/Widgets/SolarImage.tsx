@@ -76,7 +76,7 @@ const C = {
 
 // ── Component ───────────────────────────────────────────────────────
 const SolarImage: React.FC = () => {
-  const [activeSource, setActiveSource] = useState<SourceId>('aia304');
+  const [activeSource, setActiveSource] = useState<SourceId>('hmiint');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -161,7 +161,7 @@ const SolarImage: React.FC = () => {
     });
   }, [clearLoadTimeout, source.urls.length]);
 
-  const imgSize = 160;
+  const imgSize = 200;
 
   // Error / placeholder fallback
   const ErrorPlaceholder: React.FC<{ size: number }> = ({ size }) => (
