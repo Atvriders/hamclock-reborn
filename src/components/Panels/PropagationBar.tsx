@@ -66,6 +66,7 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
       borderTop: '1px solid #1a2332',
       display: 'flex',
       alignItems: 'center',
+      justifyContent: 'center',
       padding: '0 12px',
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
       zIndex: 1000,

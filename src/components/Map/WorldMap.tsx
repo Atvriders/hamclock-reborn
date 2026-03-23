@@ -1188,11 +1188,11 @@ export default function WorldMap({
         <NightOverlay showNight={layers.dayNight} showGray={layers.grayLine} />
 
         {/* Propagation heat map overlay */}
-        {layers.muf && selectedBand && BAND_FREQ_MAP[selectedBand] && userLat != null && userLng != null && (
+        {layers.muf && userLat != null && userLng != null && (
           <PropagationHeatMap
             userLat={userLat}
             userLng={userLng}
-            bandMhz={BAND_FREQ_MAP[selectedBand]}
+            bandMhz={BAND_FREQ_MAP[selectedBand ?? '20m'] ?? 14.0}
           />
         )}
 

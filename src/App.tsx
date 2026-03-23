@@ -16,6 +16,7 @@ import DRAPWidget from './components/Widgets/DRAPWidget';
 import AuroraWidget from './components/Widgets/AuroraWidget';
 import PropPrediction from './components/Widgets/PropPrediction';
 import ISSPass from './components/Widgets/ISSPass';
+import KC2GWidget from './components/Widgets/KC2GWidget';
 import HRDLogGraph from './components/Widgets/HRDLogGraph';
 
 // ── Error Boundary ──────────────────────────────────────────────────
@@ -143,6 +144,7 @@ function AppInner() {
             { label: 'SDO Solar', content: <SolarImage /> },
             { label: 'DRAP', content: <DRAPWidget /> },
             { label: 'Aurora', content: <AuroraWidget /> },
+            { label: 'KC2G', content: <KC2GWidget /> },
           ]}
         />
       </div>
