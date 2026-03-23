@@ -54,7 +54,7 @@ const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
     <>
       <style>{scrollbarCSS}</style>
       <div style={{
-        width: 260,
+        width: '100%',
         background: '#0d1117',
         borderLeft: '1px solid #1a2332',
         display: 'flex',

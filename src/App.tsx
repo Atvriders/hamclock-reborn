@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import 'leaflet/dist/leaflet.css';
 import { useStore as useAppStore } from './hooks/useStore';
 import { useDataFetch } from './hooks/useDataFetch';
+import { useIsMobile } from './hooks/useIsMobile';
 import SetupScreen from './components/SetupScreen';
 import Header from './components/Panels/Header';
 import SolarPanel from './components/Panels/SolarPanel';
@@ -79,6 +80,173 @@ function TabbedWidget({ tabs }: { tabs: { label: string; content: React.ReactNod
   );
 }
 
+// ── Mobile Tabbed Panel ─────────────────────────────────────────────
+
+function MobileTabs({ tabs }: { tabs: { label: string; icon: string; content: React.ReactNode }[] }) {
+  const [active, setActive] = useState(0);
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      flex: 1,
+      minHeight: 0,
+      overflow: 'hidden',
+      background: '#0a0e14',
+    }}>
+      {/* Tab bar */}
+      <div style={{
+        display: 'flex',
+        borderBottom: '1px solid #1a2332',
+        background: '#080c12',
+        flexShrink: 0,
+      }}>
+        {tabs.map((tab, i) => (
+          <button
+            key={tab.label}
+            onClick={() => setActive(i)}
+            style={{
+              flex: 1,
+              padding: '8px 0 6px',
+              fontSize: 10,
+              fontFamily: "'Courier New', Consolas, monospace",
+              fontWeight: active === i ? 700 : 400,
+              color: active === i ? '#00d4ff' : '#4a5568',
+              background: active === i ? '#0d1520' : 'transparent',
+              border: 'none',
+              borderRight: i < tabs.length - 1 ? '1px solid #1a2332' : 'none',
+              cursor: 'pointer',
+              letterSpacing: 0.5,
+              transition: 'color 0.15s, background 0.15s',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>{tab.icon}</span>
+            <span style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: 1 }}>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+      {/* Tab content */}
+      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {tabs[active]?.content}
+      </div>
+    </div>
+  );
+}
+
+// ── Mobile Header ───────────────────────────────────────────────────
+
+function MobileHeader({ callsign, onCallsignChange }: { callsign?: string; onCallsignChange?: (cs: string) => void }) {
+  const [utcTime, setUtcTime] = useState(new Date());
+  const [editing, setEditing] = useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => setUtcTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  React.useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const formatUTC = (d: Date): string => {
+    const h = String(d.getUTCHours()).padStart(2, '0');
+    const m = String(d.getUTCMinutes()).padStart(2, '0');
+    const s = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  };
+
+  const handleSave = (value: string) => {
+    const upper = value.toUpperCase().trim();
+    localStorage.setItem('hamclock_callsign', upper);
+    setEditing(false);
+    onCallsignChange?.(upper);
+  };
+
+  return (
+    <header style={{
+      height: 40,
+      background: '#080c12',
+      borderBottom: '1px solid #1a2332',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '0 10px',
+      fontFamily: "'Courier New', Courier, monospace",
+      boxSizing: 'border-box',
+    }}>
+      {/* Left: HAMCLOCK + callsign */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{
+          color: '#ffffff',
+          fontSize: 11,
+          fontWeight: 'bold',
+          letterSpacing: 1.5,
+          whiteSpace: 'nowrap',
+        }}>
+          HAMCLOCK
+        </span>
+        {editing ? (
+          <input
+            ref={inputRef}
+            defaultValue={callsign || ''}
+            placeholder="CALL"
+            maxLength={10}
+            onBlur={(e) => handleSave(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value);
+              if (e.key === 'Escape') setEditing(false);
+            }}
+            style={{
+              background: '#0d1520',
+              border: '1px solid #00d4ff',
+              color: '#00d4ff',
+              fontFamily: "'Courier New', Courier, monospace",
+              fontSize: 11,
+              padding: '1px 4px',
+              width: 70,
+              outline: 'none',
+              textTransform: 'uppercase',
+              borderRadius: 2,
+            }}
+          />
+        ) : (
+          <span
+            onClick={() => setEditing(true)}
+            style={{
+              color: callsign ? '#00d4ff' : '#4a5568',
+              fontSize: 11,
+              cursor: 'pointer',
+            }}
+          >
+            {callsign || 'CALL'}
+          </span>
+        )}
+      </div>
+
+      {/* Right: UTC clock */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+        <span style={{
+          color: '#ffffff',
+          fontSize: 18,
+          fontWeight: 'bold',
+          letterSpacing: 2,
+          fontFamily: "'Courier New', Courier, monospace",
+        }}>
+          {formatUTC(utcTime)}
+        </span>
+        <span style={{ color: '#4a5568', fontSize: 8, letterSpacing: 1 }}>UTC</span>
+      </div>
+    </header>
+  );
+}
+
 // ── App Inner (main dashboard) ──────────────────────────────────────
 
 function AppInner() {
@@ -91,6 +259,7 @@ function AppInner() {
   const propagation = useAppStore((s) => s.propagation);
   const userLat = useAppStore((s) => s.userLat);
   const userLng = useAppStore((s) => s.userLng);
+  const isMobile = useIsMobile();
 
   const [selectedBand, setSelectedBand] = useState<string | null>(null);
   const [dxLocation, setDxLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -105,6 +274,128 @@ function AppInner() {
       .map(([band]) => band);
   }, [bands]);
 
+  // ── Mobile layout ───────────────────────────────────────────────
+  if (isMobile) {
+    const mobileTabs = [
+      {
+        label: 'Solar',
+        icon: '\u2600\uFE0F',
+        content: (
+          <div style={{ overflow: 'auto' }}>
+            {solar ? (
+              <SolarPanel data={solar} />
+            ) : (
+              <div style={{ padding: 10, fontSize: 11, color: '#4a5568', fontStyle: 'italic' }}>
+                Awaiting solar data...
+              </div>
+            )}
+          </div>
+        ),
+      },
+      {
+        label: 'Bands',
+        icon: '\uD83D\uDCCA',
+        content: (
+          <div style={{ overflow: 'auto' }}>
+            <BandPanel data={bands} />
+          </div>
+        ),
+      },
+      {
+        label: 'DX',
+        icon: '\uD83D\uDCE1',
+        content: (
+          <div style={{ overflow: 'auto', flex: 1 }}>
+            <DXPanel spots={dxSpots} />
+          </div>
+        ),
+      },
+      {
+        label: 'More',
+        icon: '\uD83D\uDE80',
+        content: (
+          <div style={{ overflow: 'auto' }}>
+            <ISSPass userLat={userLat} userLng={userLng} />
+            <div style={{ borderTop: '1px solid #1a2332' }}>
+              <XRayFlux />
+            </div>
+            <div style={{ borderTop: '1px solid #1a2332' }}>
+              <PropPrediction
+                userLat={userLat}
+                userLng={userLng}
+                bands={bands}
+                dxLocation={dxLocation}
+              />
+            </div>
+          </div>
+        ),
+      },
+    ];
+
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100vh',
+          background: '#1a2332',
+          color: '#e0e0e0',
+          fontFamily: "'Courier New', Consolas, monospace",
+          overflow: 'hidden',
+        }}
+      >
+        {/* Mobile Header — 40px */}
+        <MobileHeader callsign={callsign} onCallsignChange={setCallsign} />
+
+        {/* Map — 50vh */}
+        <div style={{
+          height: '50vh',
+          flexShrink: 0,
+          background: '#0a0e14',
+          overflow: 'hidden',
+        }}>
+          <WorldMap
+            dxSpots={dxSpots}
+            satellites={satellites}
+            userLat={userLat}
+            userLng={userLng}
+            dxLocation={dxLocation}
+            onMapClick={(lat, lng) => setDxLocation({ lat, lng })}
+            selectedBand={selectedBand}
+          />
+        </div>
+
+        {/* Tabbed panels — remaining space */}
+        <MobileTabs tabs={mobileTabs} />
+
+        {/* Propagation bar — compact for mobile */}
+        <div style={{
+          flexShrink: 0,
+          background: '#080c12',
+          height: 28,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+        }}>
+          <PropagationBar
+            forecast={propagation}
+            bandsOpen={bandsOpen}
+            onBandSelect={setSelectedBand}
+          />
+        </div>
+
+        {/* Mobile scrollbar and layout fixes */}
+        <style>{`
+          @media (max-width: 767px) {
+            .dx-panel-scroll { width: 100% !important; }
+            .dx-panel-scroll > div { width: auto !important; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // ── Desktop layout (unchanged) ────────────────────────────────────
   return (
     <div
       style={{
