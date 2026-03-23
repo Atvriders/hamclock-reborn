@@ -6,31 +6,22 @@ interface DXPanelProps {
   onSpotClick?: (spot: DXSpot) => void;
 }
 
-const COLORS = {
-  bgPanel: '#0d1117',
-  primary: '#ffffff',
-  green: '#00ff88',
-  muted: '#4a5568',
-  border: '#1a2332',
-  text: '#8899aa',
-};
-
 const BAND_COLORS: Record<string, string> = {
   '160m': '#ff6b9d',
-  '80m':  '#c084fc',
-  '40m':  '#60a5fa',
-  '30m':  '#22d3ee',
-  '20m':  '#34d399',
-  '17m':  '#a3e635',
-  '15m':  '#fbbf24',
-  '12m':  '#fb923c',
-  '10m':  '#f87171',
+  '80m':  '#ff6b6b',
+  '40m':  '#ffa07a',
+  '30m':  '#ffd700',
+  '20m':  '#00ff88',
+  '17m':  '#00d4ff',
+  '15m':  '#7b68ee',
+  '12m':  '#da70d6',
+  '10m':  '#ff69b4',
   '6m':   '#e879f9',
   '2m':   '#2dd4bf',
 };
 
 function getBandColor(band: string): string {
-  return BAND_COLORS[band] || COLORS.text;
+  return BAND_COLORS[band] || '#8899aa';
 }
 
 function formatSpotTime(isoStr: string): string {
@@ -47,158 +38,172 @@ function formatFrequency(khz: number): string {
   return khz.toFixed(1);
 }
 
+const scrollbarCSS = `
+.dx-panel-scroll::-webkit-scrollbar { width: 4px; }
+.dx-panel-scroll::-webkit-scrollbar-track { background: transparent; }
+.dx-panel-scroll::-webkit-scrollbar-thumb { background: #1a2332; border-radius: 2px; }
+.dx-panel-scroll::-webkit-scrollbar-thumb:hover { background: #2a3a4f; }
+`;
+
 const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
   const sortedSpots = [...spots].sort((a, b) =>
     new Date(b.time).getTime() - new Date(a.time).getTime()
   );
 
   return (
-    <div style={{
-      width: 220,
-      background: COLORS.bgPanel,
-      borderLeft: `1px solid ${COLORS.border}`,
-      borderTop: `1px solid ${COLORS.border}`,
-      padding: '12px 10px',
-      fontFamily: "'Courier New', Courier, monospace",
-      boxSizing: 'border-box',
-      overflowY: 'auto',
-      flex: 1,
-    }}>
-      {/* Header */}
+    <>
+      <style>{scrollbarCSS}</style>
       <div style={{
+        width: 260,
+        background: '#0d1117',
+        borderLeft: '1px solid #1a2332',
         display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-        paddingBottom: 6,
-        borderBottom: `1px solid ${COLORS.border}`,
+        flexDirection: 'column',
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+        boxSizing: 'border-box',
+        flex: 1,
       }}>
-        <span style={{
-          color: COLORS.primary,
-          fontSize: 11,
-          fontWeight: 'bold',
-          letterSpacing: 1.5,
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '6px 8px',
+          borderBottom: '1px solid #1a2332',
+          flexShrink: 0,
         }}>
-          DX CLUSTER
-        </span>
-        <span style={{ color: COLORS.muted, fontSize: 10 }}>
-          {spots.length} spots
-        </span>
-      </div>
-
-      {/* Spot list */}
-      {sortedSpots.length === 0 ? (
-        <div style={{ color: COLORS.muted, fontSize: 11, textAlign: 'center', padding: 20 }}>
-          No spots received
+          <span style={{
+            color: '#ffffff',
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: 1.5,
+            textTransform: 'uppercase',
+          }}>
+            DX Cluster
+          </span>
+          <span style={{
+            background: '#1a2332',
+            color: '#8899aa',
+            fontSize: 9,
+            fontWeight: 600,
+            padding: '1px 6px',
+            borderRadius: 8,
+            minWidth: 18,
+            textAlign: 'center',
+          }}>
+            {spots.length}
+          </span>
         </div>
-      ) : (
-        sortedSpots.map((spot) => (
-          <div
-            key={spot.id}
-            onClick={() => onSpotClick?.(spot)}
-            style={{
-              padding: '6px 4px',
-              borderBottom: `1px solid ${COLORS.border}`,
-              cursor: onSpotClick ? 'pointer' : 'default',
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = 'rgba(255, 255, 255, 0.05)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-            }}
-          >
-            {/* Row 1: Freq + Callsign + Time */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+
+        {/* Spot list */}
+        <div className="dx-panel-scroll" style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '2px 0',
+        }}>
+          {sortedSpots.length === 0 ? (
+            <div style={{
+              color: '#4a5568',
+              fontSize: 10,
+              textAlign: 'center',
+              padding: '20px 8px',
+              fontStyle: 'italic',
+            }}>
+              No spots received
+            </div>
+          ) : (
+            sortedSpots.map((spot) => (
+              <div
+                key={spot.id}
+                onClick={() => onSpotClick?.(spot)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  height: 20,
+                  padding: '0 8px',
+                  cursor: onSpotClick ? 'pointer' : 'default',
+                  transition: 'background 0.1s',
+                  gap: 6,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+                }}
+              >
+                {/* Frequency */}
                 <span style={{
                   color: getBandColor(spot.band),
                   fontSize: 10,
-                  minWidth: 46,
+                  fontWeight: 600,
+                  width: 42,
+                  textAlign: 'right',
+                  flexShrink: 0,
                 }}>
                   {formatFrequency(spot.frequency)}
                 </span>
+
+                {/* DX Callsign */}
                 <span style={{
                   color: '#ffffff',
-                  fontSize: 12,
-                  fontWeight: 'bold',
-                  letterSpacing: 0.5,
-                }}>
-                  {spot.dx}
-                </span>
-              </div>
-              <span style={{ color: COLORS.muted, fontSize: 9 }}>
-                {formatSpotTime(spot.time)}
-              </span>
-            </div>
-
-            {/* Row 2: Spotter + Mode + Comment */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginTop: 2,
-            }}>
-              <span style={{ color: COLORS.text, fontSize: 9 }}>
-                de {spot.spotter}
-              </span>
-              {spot.comment && (
-                <span style={{
-                  color: COLORS.muted,
-                  fontSize: 9,
-                  maxWidth: 100,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  width: 62,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}>
-                  {spot.comment}
+                  {spot.dx}
                 </span>
-              )}
-            </div>
 
-            {/* Band + mode badges */}
-            <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
-              <span style={{
-                display: 'inline-block',
-                padding: '0 4px',
-                fontSize: 8,
-                fontWeight: 'bold',
-                color: getBandColor(spot.band),
-                background: `${getBandColor(spot.band)}15`,
-                borderRadius: 2,
-                letterSpacing: 0.5,
-              }}>
-                {spot.band}
-              </span>
-              {spot.mode && (
+                {/* Spotter */}
                 <span style={{
-                  display: 'inline-block',
-                  padding: '0 4px',
-                  fontSize: 8,
-                  color: COLORS.muted,
-                  background: 'rgba(74, 85, 104, 0.15)',
-                  borderRadius: 2,
+                  color: '#4a5568',
+                  fontSize: 9,
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  minWidth: 0,
                 }}>
-                  {spot.mode}
+                  de {spot.spotter}
                 </span>
-              )}
-              {spot.dxcc && (
+
+                {/* Mode badge */}
+                {spot.mode && (
+                  <span style={{
+                    fontSize: 7,
+                    fontWeight: 700,
+                    color: '#8899aa',
+                    background: 'rgba(136,153,170,0.12)',
+                    padding: '1px 4px',
+                    borderRadius: 6,
+                    letterSpacing: 0.3,
+                    flexShrink: 0,
+                    lineHeight: '12px',
+                  }}>
+                    {spot.mode}
+                  </span>
+                )}
+
+                {/* Time */}
                 <span style={{
-                  display: 'inline-block',
-                  padding: '0 4px',
-                  fontSize: 8,
-                  color: COLORS.text,
-                  background: 'rgba(136, 153, 170, 0.1)',
-                  borderRadius: 2,
+                  color: '#4a5568',
+                  fontSize: 9,
+                  flexShrink: 0,
+                  width: 30,
+                  textAlign: 'right',
                 }}>
-                  {spot.dxcc}
+                  {formatSpotTime(spot.time)}
                 </span>
-              )}
-            </div>
-          </div>
-        ))
-      )}
-    </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </>
   );
 };
 

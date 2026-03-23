@@ -38,6 +38,44 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 
+// ── Tabbed container for switching between widgets ──────────────────
+
+function TabbedWidget({ tabs }: { tabs: { label: string; content: React.ReactNode }[] }) {
+  const [active, setActive] = useState(0);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1, minHeight: 0 }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid #1a2332', flexShrink: 0 }}>
+        {tabs.map((tab, i) => (
+          <button
+            key={tab.label}
+            onClick={() => setActive(i)}
+            style={{
+              flex: 1,
+              padding: '4px 0',
+              fontSize: 9,
+              fontFamily: "'Courier New', Consolas, monospace",
+              fontWeight: active === i ? 700 : 400,
+              color: active === i ? '#00d4ff' : '#4a5568',
+              background: active === i ? '#0d1520' : 'transparent',
+              border: 'none',
+              borderRight: i < tabs.length - 1 ? '1px solid #1a2332' : 'none',
+              cursor: 'pointer',
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+              transition: 'color 0.15s, background 0.15s',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {tabs[active]?.content}
+      </div>
+    </div>
+  );
+}
+
 // ── App Inner (main dashboard) ──────────────────────────────────────
 
 function AppInner() {
@@ -64,28 +102,32 @@ function AppInner() {
       .map(([band]) => band);
   }, [bands]);
 
-  // satellites still used by WorldMap for map markers
-
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateRows: '48px 1fr 36px',
-        gridTemplateColumns: '260px 1fr 240px',
+        gridTemplateRows: '44px 1fr 32px',
+        gridTemplateColumns: '240px 1fr 280px',
         height: '100vh',
-        background: '#0a0e14',
+        background: '#1a2332',
         color: '#e0e0e0',
         fontFamily: "'Courier New', Consolas, monospace",
         overflow: 'hidden',
+        gap: 1,
       }}
     >
       {/* Row 1: Header spanning all columns */}
-      <div style={{ gridColumn: '1 / -1' }}>
+      <div style={{ gridColumn: '1 / -1', background: '#080c12' }}>
         <Header callsign={callsign} onCallsignChange={setCallsign} />
       </div>
 
-      {/* Row 2, Col 1: Left sidebar — Solar Panel + Solar Image */}
-      <div style={{ borderRight: '1px solid #1a2332', overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
+      {/* Row 2, Col 1: Left sidebar — Solar Panel + tabbed widgets */}
+      <div style={{
+        background: '#0a0e14',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
         {solar ? (
           <SolarPanel data={solar} />
         ) : (
@@ -93,45 +135,71 @@ function AppInner() {
             Awaiting solar data...
           </div>
         )}
-        <EnlilWidget />
-        <SolarImage />
+        <TabbedWidget
+          tabs={[
+            { label: 'Enlil', content: <EnlilWidget /> },
+            { label: 'SDO Solar', content: <SolarImage /> },
+          ]}
+        />
       </div>
 
       {/* Row 2, Col 2: World Map */}
-      <WorldMap
-        dxSpots={dxSpots}
-        satellites={satellites}
-        userLat={userLat}
-        userLng={userLng}
-        dxLocation={dxLocation}
-        onMapClick={(lat, lng) => setDxLocation({ lat, lng })}
-        selectedBand={selectedBand}
-      />
+      <div style={{ background: '#0a0e14', overflow: 'hidden' }}>
+        <WorldMap
+          dxSpots={dxSpots}
+          satellites={satellites}
+          userLat={userLat}
+          userLng={userLng}
+          dxLocation={dxLocation}
+          onMapClick={(lat, lng) => setDxLocation({ lat, lng })}
+          selectedBand={selectedBand}
+        />
+      </div>
 
-      {/* Row 2, Col 3: Right sidebar — Band Conditions + DX Cluster + Satellites */}
-      <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid #1a2332', overflow: 'hidden' }}>
-        <div style={{ borderBottom: '1px solid #1a2332', overflow: 'hidden', flexShrink: 0 }}>
+      {/* Row 2, Col 3: Right sidebar — Band Conditions + DX Cluster + ISS + tabbed bottom */}
+      <div style={{
+        background: '#0a0e14',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
+        {/* Band Conditions — compact, no grow */}
+        <div style={{ borderBottom: '1px solid #1a2332', flexShrink: 0, overflow: 'hidden' }}>
           <BandPanel data={bands} />
         </div>
-        <div style={{ flex: 1, overflow: 'auto', borderBottom: '1px solid #1a2332' }}>
+
+        {/* DX Cluster — scrollable, takes most space */}
+        <div style={{ flex: 1, overflow: 'auto', borderBottom: '1px solid #1a2332', minHeight: 0 }}>
           <DXPanel spots={dxSpots} />
         </div>
+
+        {/* ISS Pass — compact */}
         <div style={{ flexShrink: 0, borderBottom: '1px solid #1a2332' }}>
           <ISSPass userLat={userLat} userLng={userLng} />
         </div>
-        <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 200 }}>
-          <XRayFlux />
-        </div>
-        <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 180 }}>
-          <HRDLogGraph />
-        </div>
-        <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 280 }}>
-          <PropPrediction userLat={userLat} userLng={userLng} bands={bands} dxLocation={dxLocation} />
-        </div>
+
+        {/* Tabbed bottom: X-Ray | HRDLog | Propagation */}
+        <TabbedWidget
+          tabs={[
+            { label: 'X-Ray', content: <XRayFlux /> },
+            { label: 'HRDLog', content: <HRDLogGraph /> },
+            {
+              label: 'Propagation',
+              content: (
+                <PropPrediction
+                  userLat={userLat}
+                  userLng={userLng}
+                  bands={bands}
+                  dxLocation={dxLocation}
+                />
+              ),
+            },
+          ]}
+        />
       </div>
 
       {/* Row 3: Propagation bar spanning all columns */}
-      <div style={{ gridColumn: '1 / -1' }}>
+      <div style={{ gridColumn: '1 / -1', background: '#0a0e14' }}>
         <PropagationBar
           forecast={propagation}
           bandsOpen={bandsOpen}

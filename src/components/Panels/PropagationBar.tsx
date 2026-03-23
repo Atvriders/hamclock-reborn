@@ -11,48 +11,19 @@ interface PropagationBarProps {
   onBandSelect?: (band: string | null) => void;
 }
 
-const COLORS = {
-  bg: '#0a0e14',
-  green: '#00ff88',
-  amber: '#ffb800',
-  red: '#ff4444',
-  cyan: '#00d4ff',
-  muted: '#4a5568',
-  border: '#1a2332',
-  text: '#8899aa',
-};
-
 const ALL_HF_BANDS = ['80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m'];
 
-const BAND_FREQ_MAP: Record<string, number> = {
-  '80m': 3.5,
-  '40m': 7.0,
-  '30m': 10.1,
-  '20m': 14.0,
-  '17m': 18.0,
-  '15m': 21.0,
-  '12m': 24.9,
-  '10m': 28.0,
-  '6m': 50.0,
+const BAND_FREQ_MAP: Record<string, string> = {
+  '80m': '3.5',
+  '40m': '7.0',
+  '30m': '10.1',
+  '20m': '14.0',
+  '17m': '18.0',
+  '15m': '21.0',
+  '12m': '24.9',
+  '10m': '28.0',
+  '6m': '50.0',
 };
-
-function conditionColor(cond: string): string {
-  switch (cond) {
-    case 'Good': return COLORS.green;
-    case 'Fair': return COLORS.amber;
-    case 'Poor': return COLORS.red;
-    default: return COLORS.muted;
-  }
-}
-
-function geomagColor(forecast: string): string {
-  switch (forecast) {
-    case 'Quiet': return COLORS.green;
-    case 'Unsettled': return COLORS.amber;
-    case 'Active': case 'Storm': return COLORS.red;
-    default: return COLORS.muted;
-  }
-}
 
 function formatPassCountdown(aosTime: string): string {
   try {
@@ -71,11 +42,8 @@ function formatPassCountdown(aosTime: string): string {
 }
 
 const PropagationBar: React.FC<PropagationBarProps> = ({
-  forecast,
   nextPass,
   grayLineActive = false,
-  grayLineSunrise,
-  grayLineSunset,
   bandsOpen = [],
   onBandSelect,
 }) => {
@@ -86,70 +54,30 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
     setSelectedBand(newBand);
     onBandSelect?.(newBand);
   };
+
   return (
     <div style={{
       position: 'fixed',
       bottom: 0,
       left: 0,
       right: 0,
-      height: 36,
-      background: COLORS.bg,
-      borderTop: `1px solid ${COLORS.border}`,
+      height: 32,
+      background: '#080c12',
+      borderTop: '1px solid #1a2332',
       display: 'flex',
       alignItems: 'center',
-      padding: '0 16px',
-      gap: 24,
-      fontFamily: "'Courier New', Courier, monospace",
+      padding: '0 12px',
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
       zIndex: 1000,
+      gap: 0,
     }}>
-      {/* HF / VHF condition labels */}
-      {forecast && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>HF:</span>
-            <span style={{
-              color: conditionColor(forecast.hfConditions),
-              fontSize: 11,
-              fontWeight: 'bold',
-            }}>
-              {forecast.hfConditions}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>VHF:</span>
-            <span style={{
-              color: conditionColor(forecast.vhfConditions),
-              fontSize: 11,
-              fontWeight: 'bold',
-            }}>
-              {forecast.vhfConditions}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>GEO:</span>
-            <span style={{
-              color: geomagColor(forecast.geomagForecast),
-              fontSize: 11,
-              fontWeight: 'bold',
-            }}>
-              {forecast.geomagForecast}
-            </span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>MUF:</span>
-            <span style={{ color: COLORS.cyan, fontSize: 11, fontWeight: 'bold' }}>
-              {forecast.muf.toFixed(1)}
-            </span>
-            <span style={{ color: COLORS.muted, fontSize: 9 }}>MHz</span>
-          </div>
-        </>
-      )}
-
-      {/* Separator */}
-      <div style={{ width: 1, height: 18, background: COLORS.border, flexShrink: 0 }} />
-
-      {/* Band pills */}
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+      {/* Left: Band pills */}
+      <div style={{
+        display: 'flex',
+        gap: 3,
+        alignItems: 'center',
+        flexShrink: 0,
+      }}>
         {ALL_HF_BANDS.map((band) => {
           const isOpen = bandsOpen.includes(band);
           const isSelected = selectedBand === band;
@@ -157,91 +85,153 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
             <button
               key={band}
               onClick={() => handleBandClick(band)}
-              title={isOpen ? `${band} — OPEN` : `${band} — CLOSED`}
+              title={`${band} ${BAND_FREQ_MAP[band]} MHz — ${isOpen ? 'OPEN' : 'CLOSED'}`}
               style={{
-                padding: '2px 6px',
-                fontSize: 10,
-                fontWeight: 'bold',
-                borderRadius: 3,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: 18,
+                padding: '0 5px',
+                fontSize: 9,
+                fontWeight: 700,
+                borderRadius: 4,
                 color: isSelected
-                  ? '#0a0e14'
-                  : isOpen ? '#0a0e14' : COLORS.muted,
+                  ? '#00d4ff'
+                  : isOpen ? '#00ff88' : '#3a4555',
                 background: isSelected
-                  ? COLORS.cyan
-                  : isOpen ? COLORS.green : 'rgba(74, 85, 104, 0.15)',
-                letterSpacing: 0.5,
-                transition: 'all 0.2s',
+                  ? 'rgba(0,212,255,0.08)'
+                  : 'transparent',
+                letterSpacing: 0.3,
+                transition: 'all 0.15s',
                 cursor: 'pointer',
-                border: isSelected ? `1px solid ${COLORS.cyan}` : '1px solid transparent',
-                boxShadow: isSelected ? `0 0 6px ${COLORS.cyan}` : 'none',
+                border: isSelected
+                  ? '1px solid #00d4ff'
+                  : '1px solid transparent',
+                boxShadow: isSelected
+                  ? '0 0 6px rgba(0,212,255,0.4)'
+                  : 'none',
                 outline: 'none',
                 fontFamily: 'inherit',
-                lineHeight: 'inherit',
+                lineHeight: 1,
+                position: 'relative',
               }}
             >
-              {band} <span style={{ opacity: 0.7, fontSize: 9 }}>{BAND_FREQ_MAP[band]}</span>
+              <span>{band}</span>
+              <span style={{
+                fontSize: 6,
+                opacity: 0.5,
+                fontWeight: 400,
+                marginTop: -1,
+                lineHeight: 1,
+              }}>
+                {BAND_FREQ_MAP[band]}
+              </span>
             </button>
           );
         })}
       </div>
 
-      {/* Separator */}
-      <div style={{ width: 1, height: 18, background: COLORS.border, flexShrink: 0 }} />
+      {/* Spacer */}
+      <div style={{ flex: 1 }} />
 
-      {/* Next satellite pass */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>NEXT SAT:</span>
+      {/* Center: Next satellite pass */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        flexShrink: 0,
+        position: 'absolute',
+        left: '50%',
+        transform: 'translateX(-50%)',
+      }}>
+        <span style={{
+          color: '#4a5568',
+          fontSize: 9,
+          fontWeight: 600,
+          letterSpacing: 0.8,
+        }}>
+          NEXT SAT:
+        </span>
         {nextPass ? (
           <>
-            <span style={{ color: COLORS.cyan, fontSize: 11, fontWeight: 'bold' }}>
+            <span style={{ color: '#00d4ff', fontSize: 10, fontWeight: 700 }}>
               {nextPass.satellite}
             </span>
-            <span style={{ color: COLORS.text, fontSize: 10 }}>
+            <span style={{ color: '#8899aa', fontSize: 9 }}>
               in {formatPassCountdown(nextPass.aosTime)}
-            </span>
-            <span style={{ color: COLORS.muted, fontSize: 9 }}>
-              ({nextPass.maxElevation}&deg; max)
             </span>
           </>
         ) : (
-          <span style={{ color: COLORS.muted, fontSize: 10 }}>--</span>
-        )}
-      </div>
-
-      {/* Separator */}
-      <div style={{ width: 1, height: 18, background: COLORS.border, flexShrink: 0 }} />
-
-      {/* Gray line */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>GRAYLINE:</span>
-        <span style={{
-          color: grayLineActive ? COLORS.green : COLORS.muted,
-          fontSize: 11,
-          fontWeight: 'bold',
-        }}>
-          {grayLineActive ? 'ACTIVE' : 'INACTIVE'}
-        </span>
-        {grayLineActive && grayLineSunrise && grayLineSunset && (
-          <span style={{ color: COLORS.text, fontSize: 9 }}>
-            SR {grayLineSunrise} / SS {grayLineSunset}
-          </span>
+          <span style={{ color: '#3a4555', fontSize: 9 }}>--</span>
         )}
       </div>
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* Status indicator */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      {/* Right: Grayline + LIVE */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{
+            color: '#4a5568',
+            fontSize: 9,
+            fontWeight: 600,
+            letterSpacing: 0.8,
+          }}>
+            GRAYLINE:
+          </span>
+          <span style={{
+            color: grayLineActive ? '#00ff88' : '#3a4555',
+            fontSize: 9,
+            fontWeight: 700,
+          }}>
+            {grayLineActive ? 'ACTIVE' : 'INACTIVE'}
+          </span>
+        </div>
+
+        {/* Separator dot */}
         <div style={{
-          width: 6,
-          height: 6,
+          width: 2,
+          height: 2,
           borderRadius: '50%',
-          background: COLORS.green,
-          boxShadow: `0 0 4px ${COLORS.green}`,
+          background: '#2a3a4f',
+          flexShrink: 0,
         }} />
-        <span style={{ color: COLORS.muted, fontSize: 9 }}>LIVE</span>
+
+        {/* LIVE indicator */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <div style={{
+            width: 5,
+            height: 5,
+            borderRadius: '50%',
+            background: '#00ff88',
+            boxShadow: '0 0 4px rgba(0,255,136,0.6)',
+            animation: 'pulse-live 2s ease-in-out infinite',
+          }} />
+          <span style={{
+            color: '#4a5568',
+            fontSize: 8,
+            fontWeight: 600,
+            letterSpacing: 0.8,
+          }}>
+            LIVE
+          </span>
+        </div>
       </div>
+
+      {/* Pulse animation */}
+      <style>{`
+        @keyframes pulse-live {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 };

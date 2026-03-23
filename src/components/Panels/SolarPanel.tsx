@@ -5,212 +5,272 @@ interface SolarPanelProps {
   data: SolarData;
 }
 
-const COLORS = {
-  bg: '#0a0e14',
-  bgPanel: '#0d1117',
-  primary: '#ffffff',
+/* ---------- color helpers ---------- */
+
+const C = {
   green: '#00ff88',
   amber: '#ffb800',
   red: '#ff4444',
   cyan: '#00d4ff',
-  muted: '#4a5568',
-  border: '#1a2332',
-  text: '#8899aa',
+  labelGray: '#6b7280',
+  mutedGray: '#4a5568',
+  border: 'rgba(255,255,255,0.06)',
+  white: '#ffffff',
+  textMuted: '#8899aa',
 };
 
 function sfiColor(sfi: number): string {
-  if (sfi > 100) return COLORS.green;
-  if (sfi >= 70) return COLORS.amber;
-  return COLORS.red;
+  if (sfi > 100) return C.green;
+  if (sfi >= 70) return C.amber;
+  return C.red;
 }
 
 function kpColor(kp: number): string {
-  if (kp <= 3) return COLORS.green;
-  if (kp <= 5) return COLORS.amber;
-  return COLORS.red;
+  if (kp <= 3) return C.green;
+  if (kp <= 5) return C.amber;
+  return C.red;
 }
 
-function xrayColor(xrayFlux: string | undefined): string {
-  if (!xrayFlux) return COLORS.text;
-  const cls = xrayFlux.charAt(0).toUpperCase();
-  switch (cls) {
-    case 'A': case 'B': return COLORS.green;
-    case 'C': return COLORS.cyan;
-    case 'M': return COLORS.amber;
-    case 'X': return COLORS.red;
-    default: return COLORS.text;
-  }
+function aIndexColor(a: number | undefined): string {
+  if (a == null) return C.textMuted;
+  if (a > 30) return C.red;
+  if (a > 15) return C.amber;
+  return C.green;
 }
 
-function stormColor(level: string): string {
-  switch (level) {
-    case 'None': return COLORS.green;
-    case 'Minor': case 'Moderate': return COLORS.amber;
-    default: return COLORS.red;
-  }
+function xrayColor(cls: string | undefined): string {
+  if (!cls) return C.textMuted;
+  const c = cls.charAt(0).toUpperCase();
+  if (c === 'A' || c === 'B') return C.green;
+  if (c === 'C') return C.cyan;
+  if (c === 'M') return C.amber;
+  if (c === 'X') return C.red;
+  return C.textMuted;
 }
 
-const DataRow: React.FC<{
+function windColor(speed: number): string {
+  if (speed > 500) return C.red;
+  if (speed > 400) return C.amber;
+  return C.green;
+}
+
+function bzColor(bz: number): string {
+  if (bz < -5) return C.red;
+  if (bz < 0) return C.amber;
+  return C.green;
+}
+
+/* ---------- tiny sub-components ---------- */
+
+const Row: React.FC<{
   label: string;
   value: string | number;
   color: string;
   suffix?: string;
-  extra?: React.ReactNode;
-}> = ({ label, value, color, suffix, extra }) => (
-  <div style={{ marginBottom: 10 }}>
-    <div style={{
-      color: COLORS.muted,
+  mono?: boolean;
+}> = ({ label, value, color, suffix, mono = true }) => (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '3px 0',
+  }}>
+    <span style={{
       fontSize: 10,
-      letterSpacing: 1,
-      textTransform: 'uppercase',
-      marginBottom: 2,
+      color: C.labelGray,
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+      whiteSpace: 'nowrap',
     }}>
       {label}
-    </div>
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-      <span style={{
-        color,
-        fontSize: 22,
-        fontWeight: 'bold',
-        fontFamily: "'Courier New', Courier, monospace",
-        lineHeight: 1,
-      }}>
-        {value}
-      </span>
+    </span>
+    <span style={{
+      fontSize: 14,
+      fontWeight: 700,
+      color,
+      fontFamily: mono
+        ? "'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+        : 'Inter, system-ui, -apple-system, sans-serif',
+      letterSpacing: mono ? -0.3 : 0,
+    }}>
+      {value}
       {suffix && (
-        <span style={{ color: COLORS.text, fontSize: 11 }}>{suffix}</span>
+        <span style={{ fontSize: 9, fontWeight: 400, color: C.textMuted, marginLeft: 2 }}>
+          {suffix}
+        </span>
       )}
-      {extra}
-    </div>
+    </span>
   </div>
 );
 
-const KpBar: React.FC<{ kp: number }> = ({ kp }) => (
-  <div style={{ display: 'flex', gap: 2, marginTop: 4 }}>
-    {Array.from({ length: 9 }, (_, i) => (
-      <div key={i} style={{
-        width: 16,
-        height: 6,
-        borderRadius: 1,
-        background: i < kp ? kpColor(kp) : '#1a2332',
-        opacity: i < kp ? 1 : 0.3,
-      }} />
-    ))}
+const SectionLabel: React.FC<{ text: string }> = ({ text }) => (
+  <div style={{
+    fontSize: 8,
+    fontWeight: 600,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: C.mutedGray,
+    marginTop: 10,
+    marginBottom: 4,
+    paddingBottom: 3,
+    borderBottom: `1px solid ${C.border}`,
+    fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+  }}>
+    {text}
   </div>
 );
+
+const KpBar: React.FC<{ kp: number }> = ({ kp }) => {
+  const color = kpColor(kp);
+  return (
+    <div style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '3px 0 0 0',
+    }}>
+      <span style={{
+        fontSize: 10,
+        color: C.labelGray,
+        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+      }}>
+        Kp
+      </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+        <div style={{ display: 'flex', gap: 1.5 }}>
+          {Array.from({ length: 9 }, (_, i) => (
+            <div key={i} style={{
+              width: 8,
+              height: 10,
+              borderRadius: 1.5,
+              background: i < kp ? color : 'rgba(255,255,255,0.06)',
+              transition: 'background 0.3s ease',
+            }} />
+          ))}
+        </div>
+        <span style={{
+          fontSize: 14,
+          fontWeight: 700,
+          color,
+          fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+          marginLeft: 4,
+          minWidth: 14,
+          textAlign: 'right',
+        }}>
+          {kp}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+/* ---------- main component ---------- */
 
 const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
-  const lastUpdateStr = data.timestamp
-    ? new Date(data.timestamp).toISOString().slice(11, 16) + ' UTC'
-    : '--:-- UTC';
+  const ts = data.timestamp
+    ? new Date(data.timestamp).toISOString().slice(11, 16) + 'z'
+    : '';
 
   return (
     <div style={{
-      width: 200,
-      background: COLORS.bgPanel,
-      borderRight: `1px solid ${COLORS.border}`,
-      padding: '12px 14px',
-      fontFamily: "'Courier New', Courier, monospace",
-      overflowY: 'auto',
-      height: '100%',
+      background: 'transparent',
+      padding: 12,
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
       boxSizing: 'border-box',
+      width: '100%',
     }}>
-      {/* Header */}
+      {/* ------- SFI hero value ------- */}
       <div style={{
-        color: COLORS.primary,
-        fontSize: 12,
-        fontWeight: 'bold',
-        letterSpacing: 2,
-        marginBottom: 14,
-        paddingBottom: 6,
-        borderBottom: `1px solid ${COLORS.border}`,
+        display: 'flex',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        marginBottom: 2,
       }}>
-        SOLAR / SPACE WX
-      </div>
-
-      <DataRow
-        label="Solar Flux (SFI)"
-        value={data.sfi}
-        color={sfiColor(data.sfi)}
-      />
-
-      <div style={{ marginBottom: 10 }}>
-        <div style={{
-          color: COLORS.muted,
-          fontSize: 10,
-          letterSpacing: 1,
-          textTransform: 'uppercase',
-          marginBottom: 2,
-        }}>
-          Kp Index
-        </div>
         <span style={{
-          color: kpColor(data.kp),
-          fontSize: 22,
-          fontWeight: 'bold',
-          fontFamily: "'Courier New', Courier, monospace",
-          lineHeight: 1,
+          fontSize: 8,
+          fontWeight: 600,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          color: C.mutedGray,
+          fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
         }}>
-          {data.kp}
+          SOLAR FLUX
         </span>
-        <KpBar kp={data.kp} />
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
+          <span style={{
+            fontSize: 26,
+            fontWeight: 700,
+            color: sfiColor(data.sfi),
+            lineHeight: 1,
+            letterSpacing: -1,
+          }}>
+            {data.sfi}
+          </span>
+          <span style={{ fontSize: 9, color: C.textMuted }}>SFI</span>
+        </div>
       </div>
 
-      <DataRow
-        label="Sunspot Number"
-        value={data.ssn}
-        color={COLORS.cyan}
-      />
-
-      <DataRow
-        label="X-Ray Flux"
-        value={data.xray?.classification ?? '—'}
+      {/* ------- Solar Activity ------- */}
+      <SectionLabel text="Solar Activity" />
+      <Row label="SSN" value={data.ssn} color={C.cyan} />
+      <Row
+        label="X-Ray"
+        value={data.xray?.classification ?? '\u2014'}
         color={xrayColor(data.xray?.classification)}
       />
 
-      {data.solarWind && (
-      <DataRow
-        label="Solar Wind"
-        value={data.solarWind.speed}
-        color={data.solarWind.speed > 500 ? COLORS.red : data.solarWind.speed > 400 ? COLORS.amber : COLORS.green}
-        suffix="km/s"
-      />
-      )}
-
-      <DataRow
-        label="A-Index"
-        value={data.aIndex ?? '—'}
-        color={data.aIndex != null ? (data.aIndex > 30 ? COLORS.red : data.aIndex > 15 ? COLORS.amber : COLORS.green) : COLORS.text}
-      />
-
-      {data.solarWind?.bz != null && (
-        <DataRow
-          label="Bz"
-          value={data.solarWind.bz.toFixed(1)}
-          color={data.solarWind.bz < -5 ? COLORS.red : data.solarWind.bz < 0 ? COLORS.amber : COLORS.green}
-          suffix="nT"
-        />
-      )}
-
+      {/* ------- Geomagnetic ------- */}
+      <SectionLabel text="Geomagnetic" />
+      <KpBar kp={data.kp} />
+      <Row label="A-Index" value={data.aIndex ?? '\u2014'} color={aIndexColor(data.aIndex)} />
       {data.geomagField && (
-        <DataRow
-          label="Geomag Storm"
+        <Row
+          label="Storm"
           value={data.geomagField.stormLevel}
-          color={stormColor(data.geomagField.stormLevel)}
+          color={
+            data.geomagField.stormLevel === 'None' || data.geomagField.stormLevel === 'Quiet'
+              ? C.green
+              : data.geomagField.stormLevel === 'Active'
+              ? C.amber
+              : C.red
+          }
+          mono={false}
         />
       )}
 
-      {/* Last update */}
-      <div style={{
-        marginTop: 16,
-        paddingTop: 8,
-        borderTop: `1px solid ${COLORS.border}`,
-        color: COLORS.muted,
-        fontSize: 9,
-        letterSpacing: 0.5,
-      }}>
-        Last update: {lastUpdateStr}
-      </div>
+      {/* ------- Solar Wind ------- */}
+      {data.solarWind && (
+        <>
+          <SectionLabel text="Solar Wind" />
+          <Row
+            label="Speed"
+            value={data.solarWind.speed}
+            color={windColor(data.solarWind.speed)}
+            suffix="km/s"
+          />
+          {data.solarWind.bz != null && (
+            <Row
+              label="Bz"
+              value={data.solarWind.bz.toFixed(1)}
+              color={bzColor(data.solarWind.bz)}
+              suffix="nT"
+            />
+          )}
+        </>
+      )}
+
+      {/* ------- Timestamp ------- */}
+      {ts && (
+        <div style={{
+          marginTop: 10,
+          textAlign: 'right',
+          fontSize: 8,
+          color: C.mutedGray,
+          letterSpacing: 0.5,
+          fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+        }}>
+          {ts}
+        </div>
+      )}
     </div>
   );
 };

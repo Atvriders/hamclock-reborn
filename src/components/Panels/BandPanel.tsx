@@ -5,44 +5,29 @@ interface BandPanelProps {
   data: BandConditions | null;
 }
 
-const COLORS = {
-  bgPanel: '#0d1117',
-  primary: '#ffffff',
+const C = {
   green: '#00ff88',
   amber: '#ffb800',
   red: '#ff4444',
-  cyan: '#00d4ff',
-  muted: '#4a5568',
-  border: '#1a2332',
-  text: '#8899aa',
+  labelGray: '#6b7280',
+  mutedGray: '#4a5568',
+  border: 'rgba(255,255,255,0.06)',
+  white: '#ffffff',
+  textMuted: '#8899aa',
+  rowAlt: 'rgba(255,255,255,0.02)',
 };
 
-const DISPLAY_BANDS: BandName[] = ['80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'];
+const DISPLAY_BANDS: BandName[] = [
+  '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m',
+];
 
 function conditionColor(cond: ConditionLevel): string {
   switch (cond) {
-    case 'Good': return COLORS.green;
-    case 'Fair': return COLORS.amber;
-    case 'Poor': return COLORS.red;
+    case 'Good': return C.green;
+    case 'Fair': return C.amber;
+    case 'Poor': return C.red;
   }
 }
-
-function conditionBg(cond: ConditionLevel): string {
-  switch (cond) {
-    case 'Good': return 'rgba(0, 255, 136, 0.1)';
-    case 'Fair': return 'rgba(255, 184, 0, 0.1)';
-    case 'Poor': return 'rgba(255, 68, 68, 0.08)';
-  }
-}
-
-const cellStyle: React.CSSProperties = {
-  padding: '4px 8px',
-  textAlign: 'center',
-  fontSize: 11,
-  fontWeight: 'bold',
-  fontFamily: "'Courier New', Courier, monospace",
-  borderBottom: `1px solid ${COLORS.border}`,
-};
 
 function findCondition(
   conditions: Record<string, { day: string; night: string }>,
@@ -56,115 +41,134 @@ function findCondition(
   return 'Poor';
 }
 
+/* Colored dot for condition */
+const Dot: React.FC<{ cond: ConditionLevel }> = ({ cond }) => (
+  <span style={{
+    display: 'inline-block',
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    backgroundColor: conditionColor(cond),
+    boxShadow: `0 0 4px ${conditionColor(cond)}40`,
+  }} />
+);
+
 const BandPanel: React.FC<BandPanelProps> = ({ data }) => {
   const conditions = data?.conditions ?? {};
 
   return (
     <div style={{
-      width: 220,
-      background: COLORS.bgPanel,
-      borderLeft: `1px solid ${COLORS.border}`,
-      padding: '12px 10px',
-      fontFamily: "'Courier New', Courier, monospace",
+      background: 'transparent',
+      padding: 12,
       boxSizing: 'border-box',
+      width: '100%',
     }}>
       {/* Header */}
       <div style={{
-        color: COLORS.primary,
-        fontSize: 11,
-        fontWeight: 'bold',
+        fontSize: 8,
+        fontWeight: 600,
         letterSpacing: 1.5,
-        marginBottom: 10,
-        paddingBottom: 6,
-        borderBottom: `1px solid ${COLORS.border}`,
+        textTransform: 'uppercase',
+        color: C.mutedGray,
+        marginBottom: 6,
+        paddingBottom: 4,
+        borderBottom: `1px solid ${C.border}`,
+        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       }}>
         HF BAND CONDITIONS
       </div>
 
-      {/* Table */}
-      <table style={{
-        width: '100%',
-        borderCollapse: 'collapse',
-        borderSpacing: 0,
+      {/* Table header */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr 1fr',
+        padding: '0 4px 4px 4px',
       }}>
-        <thead>
-          <tr>
-            <th style={{
-              ...cellStyle,
-              color: COLORS.muted,
-              fontSize: 10,
-              fontWeight: 'normal',
-              textAlign: 'left',
-              letterSpacing: 1,
-            }}>
-              BAND
-            </th>
-            <th style={{
-              ...cellStyle,
-              color: COLORS.muted,
-              fontSize: 10,
-              fontWeight: 'normal',
-              letterSpacing: 1,
-            }}>
-              DAY
-            </th>
-            <th style={{
-              ...cellStyle,
-              color: COLORS.muted,
-              fontSize: 10,
-              fontWeight: 'normal',
-              letterSpacing: 1,
-            }}>
-              NIGHT
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {DISPLAY_BANDS.map((band) => {
-            const dayCondition = findCondition(conditions, band, 'day');
-            const nightCondition = findCondition(conditions, band, 'night');
-            return (
-              <tr key={band}>
-                <td style={{
-                  ...cellStyle,
-                  color: COLORS.cyan,
-                  textAlign: 'left',
-                  fontSize: 12,
-                }}>
-                  {band}
-                </td>
-                <td style={{
-                  ...cellStyle,
-                  color: conditionColor(dayCondition),
-                  background: conditionBg(dayCondition),
-                }}>
-                  {dayCondition}
-                </td>
-                <td style={{
-                  ...cellStyle,
-                  color: conditionColor(nightCondition),
-                  background: conditionBg(nightCondition),
-                }}>
-                  {nightCondition}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+        {['BAND', 'DAY', 'NIGHT'].map((h, i) => (
+          <span key={h} style={{
+            fontSize: 9,
+            fontWeight: 500,
+            letterSpacing: 1,
+            color: C.labelGray,
+            textAlign: i === 0 ? 'left' : 'center',
+            fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+            textTransform: 'uppercase',
+          }}>
+            {h}
+          </span>
+        ))}
+      </div>
 
-      {/* Signal noise / SFI summary */}
+      {/* Data rows */}
+      {DISPLAY_BANDS.map((band, idx) => {
+        const dayC = findCondition(conditions, band, 'day');
+        const nightC = findCondition(conditions, band, 'night');
+        return (
+          <div
+            key={band}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr 1fr',
+              alignItems: 'center',
+              height: 22,
+              padding: '0 4px',
+              borderRadius: 3,
+              background: idx % 2 === 1 ? C.rowAlt : 'transparent',
+            }}
+          >
+            <span style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: C.white,
+              fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+            }}>
+              {band}
+            </span>
+            <span style={{ textAlign: 'center' }}>
+              <Dot cond={dayC} />
+            </span>
+            <span style={{ textAlign: 'center' }}>
+              <Dot cond={nightC} />
+            </span>
+          </div>
+        );
+      })}
+
+      {/* Legend */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        gap: 10,
+        marginTop: 6,
+        paddingTop: 5,
+        borderTop: `1px solid ${C.border}`,
+      }}>
+        {(['Good', 'Fair', 'Poor'] as ConditionLevel[]).map((level) => (
+          <span key={level} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+            fontSize: 8,
+            color: C.labelGray,
+            fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+          }}>
+            <Dot cond={level} />
+            {level}
+          </span>
+        ))}
+      </div>
+
+      {/* Footer: SN */}
       {data && (
         <div style={{
-          marginTop: 8,
-          paddingTop: 6,
-          borderTop: `1px solid ${COLORS.border}`,
-          display: 'flex',
-          justifyContent: 'space-between',
-          fontSize: 9,
-          color: COLORS.muted,
+          marginTop: 4,
+          textAlign: 'right',
+          fontSize: 8,
+          color: C.mutedGray,
+          fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+          letterSpacing: 0.5,
         }}>
-          <span>SN: {data.signalNoise}</span>
+          SN {data.signalNoise}
         </div>
       )}
     </div>

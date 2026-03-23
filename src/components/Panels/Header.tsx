@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 interface HeaderProps {
   callsign?: string;
@@ -6,13 +6,14 @@ interface HeaderProps {
 }
 
 const COLORS = {
-  bg: '#0a0e14',
+  bg: '#080c12',
   primary: '#ffffff',
-  green: '#00ff88',
   cyan: '#00d4ff',
   muted: '#4a5568',
   border: '#1a2332',
   text: '#8899aa',
+  green: '#00ff88',
+  red: '#ff4444',
 };
 
 const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChange }) => {
@@ -21,11 +22,40 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
     return callsignProp || localStorage.getItem('hamclock_callsign') || '';
   });
   const [editingCallsign, setEditingCallsign] = useState(false);
+  const [dataFlowing, setDataFlowing] = useState(true);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setUtcTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Sync prop changes
+  useEffect(() => {
+    if (callsignProp !== undefined && callsignProp !== callsign) {
+      setCallsign(callsignProp);
+    }
+  }, [callsignProp]);
+
+  // Simple connection status: pulse green, go red after 60s of no update
+  useEffect(() => {
+    const check = setInterval(() => {
+      const lastFetch = localStorage.getItem('hamclock_last_fetch');
+      if (lastFetch) {
+        const age = Date.now() - Number(lastFetch);
+        setDataFlowing(age < 60000);
+      }
+    }, 5000);
+    return () => clearInterval(check);
+  }, []);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingCallsign && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingCallsign]);
 
   const handleCallsignSave = useCallback((value: string) => {
     const upper = value.toUpperCase().trim();
@@ -53,35 +83,32 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
 
   return (
     <header style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 48,
+      height: 44,
       background: COLORS.bg,
       borderBottom: `1px solid ${COLORS.border}`,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
       padding: '0 16px',
-      zIndex: 1000,
       fontFamily: "'Courier New', Courier, monospace",
+      boxSizing: 'border-box',
     }}>
       {/* Left: Title + Callsign */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 280 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
         <span style={{
           color: COLORS.primary,
-          fontSize: 16,
+          fontSize: 13,
           fontWeight: 'bold',
           letterSpacing: 2,
+          whiteSpace: 'nowrap',
         }}>
           HAMCLOCK REBORN
         </span>
         {editingCallsign ? (
           <input
-            autoFocus
+            ref={inputRef}
             defaultValue={callsign}
-            placeholder="CALLSIGN"
+            placeholder="CALL"
             maxLength={10}
             onBlur={(e) => handleCallsignSave(e.target.value)}
             onKeyDown={(e) => {
@@ -89,15 +116,16 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
               if (e.key === 'Escape') setEditingCallsign(false);
             }}
             style={{
-              background: '#111820',
+              background: '#0d1520',
               border: `1px solid ${COLORS.cyan}`,
-              color: COLORS.primary,
+              color: COLORS.cyan,
               fontFamily: "'Courier New', Courier, monospace",
-              fontSize: 13,
-              padding: '2px 6px',
-              width: 90,
+              fontSize: 12,
+              padding: '1px 5px',
+              width: 80,
               outline: 'none',
               textTransform: 'uppercase',
+              borderRadius: 2,
             }}
           />
         ) : (
@@ -106,12 +134,14 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
             title="Click to edit callsign"
             style={{
               color: callsign ? COLORS.cyan : COLORS.muted,
-              fontSize: 13,
+              fontSize: 12,
               cursor: 'pointer',
-              padding: '2px 6px',
-              border: `1px dashed ${callsign ? COLORS.border : COLORS.muted}`,
+              padding: '1px 5px',
               borderRadius: 2,
+              transition: 'background 0.15s',
             }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = '#0d1520')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
             {callsign || 'CALLSIGN'}
           </span>
@@ -119,30 +149,52 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
       </div>
 
       {/* Center: UTC Clock */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        position: 'absolute',
+        left: '50%',
+        transform: 'translateX(-50%)',
+      }}>
         <span style={{
           color: COLORS.primary,
-          fontSize: 26,
+          fontSize: 24,
           fontWeight: 'bold',
           letterSpacing: 3,
           lineHeight: 1,
+          fontFamily: "'Courier New', Courier, monospace",
         }}>
           {formatUTC(utcTime)}
         </span>
-        <span style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>UTC</span>
+        <span style={{ color: COLORS.muted, fontSize: 8, letterSpacing: 2, marginTop: 1 }}>UTC</span>
       </div>
 
-      {/* Right: Local Time + Date */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, minWidth: 280, justifyContent: 'flex-end' }}>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ color: COLORS.cyan, fontSize: 16, letterSpacing: 1 }}>
+      {/* Right: Local Time + Date + Status Dot */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240, justifyContent: 'flex-end' }}>
+        <div style={{ textAlign: 'right', lineHeight: 1.3 }}>
+          <div style={{ color: COLORS.text, fontSize: 12, letterSpacing: 1 }}>
             {formatLocalTime(utcTime)}
           </div>
-          <div style={{ color: COLORS.text, fontSize: 11, letterSpacing: 1 }}>
+          <div style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>
             {formatDate(utcTime)}
           </div>
         </div>
-        <span style={{ color: COLORS.muted, fontSize: 10 }}>LOCAL</span>
+        {/* Connection status dot */}
+        <div
+          title={dataFlowing ? 'Data flowing' : 'No data connection'}
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: dataFlowing ? COLORS.green : COLORS.red,
+            boxShadow: dataFlowing
+              ? `0 0 6px ${COLORS.green}80`
+              : `0 0 6px ${COLORS.red}80`,
+            flexShrink: 0,
+            transition: 'background 0.3s, box-shadow 0.3s',
+          }}
+        />
       </div>
     </header>
   );

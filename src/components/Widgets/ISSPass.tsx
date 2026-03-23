@@ -17,35 +17,12 @@ interface ISSPassProps {
   userLng: number;
 }
 
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 function azToCompass(az: number): string {
   const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
                 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   return dirs[Math.round(az / 22.5) % 16];
-}
-
-function formatDuration(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}m ${s}s`;
-}
-
-function formatUtcTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toISOString().slice(11, 19) + ' UTC';
-}
-
-function elevationColor(el: number): string {
-  if (el >= 45) return '#00ff88';
-  if (el >= 20) return '#ffaa00';
-  return '#ff4444';
-}
-
-function qualityBar(el: number): string {
-  // 0-90 degrees mapped to 1-5 blocks
-  const blocks = Math.max(1, Math.min(5, Math.ceil(el / 18)));
-  return '\u2588'.repeat(blocks) + '\u2591'.repeat(5 - blocks);
 }
 
 function computeCountdown(aosIso: string): string {
@@ -55,10 +32,8 @@ function computeCountdown(aosIso: string): string {
   if (diff <= 0) return 'NOW';
   const h = Math.floor(diff / 3600);
   const m = Math.floor((diff % 3600) / 60);
-  const s = diff % 60;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
 const ISSPass: React.FC<ISSPassProps> = ({ userLat, userLng }) => {
@@ -80,14 +55,12 @@ const ISSPass: React.FC<ISSPassProps> = ({ userLat, userLng }) => {
     }
   }, [userLat, userLng]);
 
-  // Initial fetch + refresh interval
   useEffect(() => {
     fetchPass();
     const id = setInterval(fetchPass, REFRESH_INTERVAL);
     return () => clearInterval(id);
   }, [fetchPass]);
 
-  // Countdown timer (every second)
   useEffect(() => {
     if (data?.aosTime) {
       setCountdown(computeCountdown(data.aosTime));
@@ -101,112 +74,79 @@ const ISSPass: React.FC<ISSPassProps> = ({ userLat, userLng }) => {
   }, [data]);
 
   const hasPass = data && data.aosTime && data.nextPass === undefined;
+  const durMin = data?.duration ? Math.floor(data.duration / 60) : 0;
 
   return (
     <div style={{
-      padding: '10px 14px',
-      fontFamily: "'Courier New', Courier, monospace",
+      padding: '6px 10px',
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
       background: '#0d1117',
-      color: '#e0e0e0',
-      fontSize: 11,
+      boxSizing: 'border-box',
     }}>
-      {/* Header */}
-      <div style={{
-        color: '#ffffff',
-        fontSize: 12,
-        fontWeight: 'bold',
-        letterSpacing: 2,
-        marginBottom: 8,
-        paddingBottom: 6,
-        borderBottom: '1px solid #1a2332',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      }}>
-        <span>NEXT ISS PASS</span>
-        <span
-          onClick={fetchPass}
-          style={{ fontSize: 10, color: '#4a5568', cursor: 'pointer' }}
-          title="Refresh"
-        >
-          {'\u21BB'}
-        </span>
-      </div>
-
       {loading && !data && (
-        <div style={{ color: '#4a5568', fontStyle: 'italic', padding: '8px 0' }}>
-          Calculating...
+        <div style={{ color: '#4a5568', fontSize: 10, fontStyle: 'italic' }}>
+          ISS: Calculating...
         </div>
       )}
 
       {!loading && !hasPass && (
-        <div style={{ color: '#4a5568', fontStyle: 'italic', padding: '8px 0' }}>
-          No pass in 24h
+        <div style={{
+          color: '#4a5568',
+          fontSize: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          height: 20,
+        }}>
+          <span style={{ color: '#8899aa', fontWeight: 700, fontSize: 10 }}>ISS</span>
+          <span>No pass in 24h</span>
         </div>
       )}
 
       {hasPass && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Countdown */}
-          <div style={{
-            fontSize: 16,
-            fontWeight: 'bold',
-            color: '#00d4ff',
-            textAlign: 'center',
-            padding: '4px 0',
-          }}>
-            In {countdown}
-          </div>
-
-          {/* AOS time */}
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#4a5568' }}>AOS</span>
-            <span>{formatUtcTime(data!.aosTime!)}</span>
-          </div>
-
-          {/* Max elevation */}
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#4a5568' }}>MAX EL</span>
-            <span style={{ color: elevationColor(data!.maxElevation!) }}>
-              {data!.maxElevation}&deg;
-            </span>
-          </div>
-
-          {/* Duration */}
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#4a5568' }}>DUR</span>
-            <span>{formatDuration(data!.duration!)}</span>
-          </div>
-
-          {/* Direction */}
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ color: '#4a5568' }}>DIR</span>
-            <span>
-              {azToCompass(data!.aosAzimuth!)} {'\u2192'} {azToCompass(data!.losAzimuth!)}
-            </span>
-          </div>
-
-          {/* Quality bar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {/* Top line: ISS label + countdown */}
           <div style={{
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            alignItems: 'baseline',
+            gap: 8,
           }}>
-            <span style={{ color: '#4a5568' }}>QUAL</span>
             <span style={{
-              color: elevationColor(data!.maxElevation!),
-              letterSpacing: 2,
+              color: '#8899aa',
               fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 1,
             }}>
-              {qualityBar(data!.maxElevation!)}
+              ISS
             </span>
+            <span style={{
+              color: '#00d4ff',
+              fontSize: 14,
+              fontWeight: 700,
+            }}>
+              In {countdown}
+            </span>
+          </div>
+
+          {/* Detail line: Max El + direction + duration */}
+          <div style={{
+            color: '#4a5568',
+            fontSize: 9,
+            display: 'flex',
+            gap: 4,
+          }}>
+            <span>
+              Max El: <span style={{ color: '#8899aa', fontFamily: 'inherit' }}>{data!.maxElevation}&deg;</span>
+            </span>
+            <span style={{ color: '#2a3a4f' }}>|</span>
+            <span>
+              {azToCompass(data!.aosAzimuth!)}&rarr;{azToCompass(data!.losAzimuth!)}
+            </span>
+            <span style={{ color: '#2a3a4f' }}>|</span>
+            <span>{durMin}min</span>
           </div>
         </div>
       )}
-
-      <div style={{ fontSize: 9, color: '#4a5568', marginTop: 6 }}>
-        Source: CelesTrak TLE
-      </div>
     </div>
   );
 };
