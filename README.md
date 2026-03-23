@@ -1,6 +1,6 @@
 # HamClock Reborn
 
-**Live demo: [https://hamclock-reborn.org](https://hamclock-reborn.org/)**
+**[https://hamclock-reborn.org](https://hamclock-reborn.org/)**
 
 Modern, open-source, web-based ham radio dashboard featuring solar data, band conditions, DX cluster, satellite tracking, propagation prediction, and an interactive world map — all running in your browser.
 
