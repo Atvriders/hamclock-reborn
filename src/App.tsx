@@ -8,9 +8,10 @@ import SolarPanel from './components/Panels/SolarPanel';
 import BandPanel from './components/Panels/BandPanel';
 import DXPanel from './components/Panels/DXPanel';
 import PropagationBar from './components/Panels/PropagationBar';
-import SatellitePanel from './components/Panels/SatellitePanel';
+import XRayFlux from './components/Widgets/XRayFlux';
 import WorldMap from './components/Map/WorldMap';
 import SolarImage from './components/Widgets/SolarImage';
+import EnlilWidget from './components/Widgets/EnlilWidget';
 import PropPrediction from './components/Widgets/PropPrediction';
 
 // ── Error Boundary ──────────────────────────────────────────────────
@@ -60,14 +61,7 @@ function AppInner() {
       .map(([band]) => band);
   }, [bands]);
 
-  // Adapt store satellites (SatellitePosition[]) to SatellitePanel's expected shape
-  const satelliteInfos = useMemo(() => {
-    return satellites.map((sat) => ({
-      position: sat,
-      nextPass: null,
-      isVisible: false,
-    }));
-  }, [satellites]);
+  // satellites still used by WorldMap for map markers
 
   return (
     <div
@@ -96,6 +90,7 @@ function AppInner() {
             Awaiting solar data...
           </div>
         )}
+        <EnlilWidget />
         <SolarImage />
       </div>
 
@@ -116,7 +111,7 @@ function AppInner() {
           <DXPanel spots={dxSpots} />
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 200 }}>
-          <SatellitePanel satellites={satelliteInfos} />
+          <XRayFlux />
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 280 }}>
           <PropPrediction userLat={userLat} userLng={userLng} bands={bands} />
