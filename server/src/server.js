@@ -256,63 +256,99 @@ async function fetchBandData() {
   };
 }
 
-// Try multiple DX spot sources
-const DX_SOURCES = [
-  'https://www.dxwatch.com/dxsd1/s.php?s=0&r=50',
-  'https://dxcluster.ha8tks.hu/lastspots.php?nr=30',
-  'https://www.hamqth.com/dxc_csv.php?limit=30',
-];
+// ── DX Spot Sources & Parsers ──────────────────────────────────────────
 
-function parseDxLine(line) {
-  // Try various DX cluster formats
-  const m = line.match(/([A-Z0-9/]{3,10})\s+(\d{3,6}\.?\d*)\s+([A-Z0-9/]{3,10})\s+(.*?)\s+(\d{4}Z?)/i);
-  if (!m) return null;
-  const freq = parseFloat(m[2]);
-  if (isNaN(freq) || freq < 1000 || freq > 500000) return null;
-  let band = 'Unknown';
-  if (freq < 4000) band = '80m';
-  else if (freq < 8000) band = '40m';
-  else if (freq < 11000) band = '30m';
-  else if (freq < 15000) band = '20m';
-  else if (freq < 19000) band = '17m';
-  else if (freq < 22000) band = '15m';
-  else if (freq < 26000) band = '12m';
-  else if (freq < 30000) band = '10m';
-  else if (freq < 55000) band = '6m';
-  else band = '2m+';
-  return {
-    id: `${m[1]}-${m[3]}-${freq}`,
-    spotter: m[1],
-    dx: m[3],
-    frequency: freq,
-    band,
-    mode: guessMode(freq, m[4] || ''),
-    comment: (m[4] || '').trim(),
-    time: new Date().toISOString(),
-  };
+function freqToBand(freq) {
+  if (freq < 2000) return '160m';
+  if (freq < 4000) return '80m';
+  if (freq < 5500) return '60m';
+  if (freq < 8000) return '40m';
+  if (freq < 11000) return '30m';
+  if (freq < 15000) return '20m';
+  if (freq < 19000) return '17m';
+  if (freq < 22000) return '15m';
+  if (freq < 26000) return '12m';
+  if (freq < 30000) return '10m';
+  if (freq < 55000) return '6m';
+  return '2m+';
+}
+
+// HamQTH CSV format: spotter^freq^dx^comment^time date^L^E^continent^band^country^distance
+function parseHamQTH(text) {
+  const spots = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const parts = line.split('^');
+    if (parts.length < 5) continue;
+    const spotter = parts[0];
+    const freq = parseFloat(parts[1]);
+    const dx = parts[2];
+    const comment = parts[3] || '';
+    const timeStr = parts[4] || '';
+    if (!spotter || !dx || isNaN(freq) || freq < 1000) continue;
+    spots.push({
+      id: `${spotter}-${dx}-${freq}`,
+      spotter,
+      dx,
+      frequency: freq,
+      band: parts[8] || freqToBand(freq),
+      mode: guessMode(freq, comment),
+      comment: comment.trim(),
+      time: timeStr ? new Date(timeStr.replace(' ', 'T') + 'Z').toISOString() : new Date().toISOString(),
+    });
+    if (spots.length >= 30) break;
+  }
+  return spots;
+}
+
+// Space-separated DX cluster format
+function parseDxCluster(text) {
+  const spots = [];
+  for (const line of text.split('\n')) {
+    const m = line.match(/([A-Z0-9/]{3,10})\s+(\d{3,6}\.?\d*)\s+([A-Z0-9/]{3,10})\s+(.*?)\s+(\d{4}Z?)/i);
+    if (!m) continue;
+    const freq = parseFloat(m[2]);
+    if (isNaN(freq) || freq < 1000 || freq > 500000) continue;
+    spots.push({
+      id: `${m[1]}-${m[3]}-${freq}`,
+      spotter: m[1],
+      dx: m[3],
+      frequency: freq,
+      band: freqToBand(freq),
+      mode: guessMode(freq, m[4] || ''),
+      comment: (m[4] || '').trim(),
+      time: new Date().toISOString(),
+    });
+    if (spots.length >= 30) break;
+  }
+  return spots;
 }
 
 async function fetchDxSpots() {
-  for (const url of DX_SOURCES) {
-    try {
-      const text = await safeFetchText(url);
-      const spots = [];
-      const lines = text.split('\n');
-      for (const line of lines) {
-        const spot = parseDxLine(line);
-        if (spot) {
-          spots.push(spot);
-          if (spots.length >= 30) break;
-        }
-      }
-      if (spots.length > 0) {
-        console.log(`[DX] Got ${spots.length} spots from ${url}`);
-        return spots;
-      }
-    } catch (err) {
-      console.error(`[DX] Failed ${url}:`, err.message);
+  // Try HamQTH first (works reliably, CSV format)
+  try {
+    const text = await safeFetchText('https://www.hamqth.com/dxc_csv.php?limit=30');
+    const spots = parseHamQTH(text);
+    if (spots.length > 0) {
+      console.log(`[DX] Got ${spots.length} spots from HamQTH`);
+      return spots;
     }
+  } catch (err) {
+    console.error('[DX] HamQTH failed:', err.message);
   }
+
+  // Fallback: DXWatch (may redirect)
+  try {
+    const text = await safeFetchText('https://www.dxwatch.com/dxsd1/s.php?s=0&r=50');
+    const spots = parseDxCluster(text);
+    if (spots.length > 0) {
+      console.log(`[DX] Got ${spots.length} spots from DXWatch`);
+      return spots;
+    }
+  } catch (err) {
+    console.error('[DX] DXWatch failed:', err.message);
+  }
+
   console.log('[DX] All sources failed, returning empty');
   return [];
 }
