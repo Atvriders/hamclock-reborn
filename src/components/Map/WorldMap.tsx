@@ -371,14 +371,7 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
     return () => clearInterval(id);
   }, [showNight, showGray]);
 
-  // Gray line style: thick semi-transparent amber lines for the terminator
-  // and twilight boundaries, creating a visible dawn/dusk band effect
-  const grayLineTerminatorStyle = {
-    color: '#ffab00',
-    weight: 3,
-    opacity: 0.7,
-    interactive: false,
-  };
+  // Gray line style: dashed twilight boundary showing the gray line band
   const grayLineTwilightStyle = {
     color: '#ff8f00',
     weight: 2,
@@ -421,14 +414,6 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
             interactive: false,
           }}
         />
-      ))}
-
-      {/* Gray line — terminator lines (elev = 0), split at antimeridian */}
-      {showGray && splitAtAntimeridian(grayLines.terminatorSouth).map((seg, i) => (
-        <Polyline key={`ts-${i}`} positions={seg} pathOptions={grayLineTerminatorStyle} />
-      ))}
-      {showGray && splitAtAntimeridian(grayLines.terminatorNorth).map((seg, i) => (
-        <Polyline key={`tn-${i}`} positions={seg} pathOptions={grayLineTerminatorStyle} />
       ))}
 
       {/* Gray line — twilight boundary lines (elev = -6), split at antimeridian */}
