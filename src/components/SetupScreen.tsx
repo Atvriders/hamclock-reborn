@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { callsignPrefixToLocation, latLngToGrid } from '../utils/hamradio';
 
-// ── Callsign prefix → country/coordinates mapping ───────────────────
+// ── Callsign prefix → country/coordinates mapping (used for setup display) ──
 const PREFIX_MAP: { prefix: string; country: string; lat: number; lng: number }[] = [
   // North America
   { prefix: 'W',   country: 'USA',             lat: 40.0,  lng: -98.0  },
@@ -155,8 +156,11 @@ const PREFIX_MAP: { prefix: string; country: string; lat: number; lng: number }[
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function lookupPrefixCoords(callsign: string): { country: string; lat: number; lng: number } | null {
+  // Use shared utility first (has 188 prefixes)
+  const shared = callsignPrefixToLocation(callsign);
+  if (shared) return { country: shared.country, lat: shared.lat, lng: shared.lng };
+  // Fallback to local PREFIX_MAP
   const upper = callsign.toUpperCase();
-  // Try longest prefix first (3, 2, 1 chars)
   for (let len = 3; len >= 1; len--) {
     const prefix = upper.slice(0, len);
     const match = PREFIX_MAP.find((p) => p.prefix === prefix);
@@ -166,21 +170,7 @@ function lookupPrefixCoords(callsign: string): { country: string; lat: number; l
 }
 
 function coordsToGrid(lat: number, lng: number): string {
-  // Convert lat/lng to 4-character Maidenhead grid square
-  const adjLng = lng + 180;
-  const adjLat = lat + 90;
-
-  const fieldLng = Math.floor(adjLng / 20);
-  const fieldLat = Math.floor(adjLat / 10);
-  const squareLng = Math.floor((adjLng % 20) / 2);
-  const squareLat = Math.floor((adjLat % 10) / 1);
-
-  return (
-    String.fromCharCode(65 + fieldLng) +
-    String.fromCharCode(65 + fieldLat) +
-    String(squareLng) +
-    String(squareLat)
-  );
+  return latLngToGrid(lat, lng).slice(0, 4); // 4-char grid for display
 }
 
 function isValidCallsign(cs: string): boolean {

@@ -294,7 +294,7 @@ interface LayerState {
 
 const DEFAULT_LAYERS: LayerState = {
   dayNight: true,
-  grayLine: true,
+  grayLine: false,
   muf: false,
   gridSquares: false,
   prefixes: true,
