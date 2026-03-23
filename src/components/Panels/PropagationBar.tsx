@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
-import { PropagationForecast, SatellitePass } from '../../types';
+import { PropagationForecast } from '../../types';
 
 interface PropagationBarProps {
   forecast: PropagationForecast | null;
-  nextPass?: SatellitePass | null;
   grayLineActive?: boolean;
-  grayLineSunrise?: string;
-  grayLineSunset?: string;
   bandsOpen?: string[];
   onBandSelect?: (band: string | null) => void;
 }
@@ -25,24 +22,7 @@ const BAND_FREQ_MAP: Record<string, string> = {
   '6m': '50.0',
 };
 
-function formatPassCountdown(aosTime: string): string {
-  try {
-    const aos = new Date(aosTime);
-    const now = new Date();
-    const diffMs = aos.getTime() - now.getTime();
-    if (diffMs < 0) return 'PAST';
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 60) return `${diffMin}m`;
-    const h = Math.floor(diffMin / 60);
-    const m = diffMin % 60;
-    return `${h}h ${m}m`;
-  } catch {
-    return '--';
-  }
-}
-
 const PropagationBar: React.FC<PropagationBarProps> = ({
-  nextPass,
   grayLineActive = false,
   bandsOpen = [],
   onBandSelect,
@@ -57,27 +37,39 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
 
   return (
     <div style={{
-      position: 'fixed',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      height: 32,
+      height: '100%',
       background: '#080c12',
       borderTop: '1px solid #1a2332',
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'center',
       padding: '0 12px',
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-      zIndex: 1000,
       gap: 0,
     }}>
-      {/* Left: Band pills */}
+      {/* Left section — spacer to balance the right section */}
       <div style={{
+        flex: '0 0 120px',
         display: 'flex',
-        gap: 3,
         alignItems: 'center',
-        flexShrink: 0,
+      }}>
+        <span style={{
+          color: '#2a3a4f',
+          fontSize: 8,
+          fontWeight: 600,
+          letterSpacing: 0.8,
+          textTransform: 'uppercase',
+        }}>
+          HF BANDS
+        </span>
+      </div>
+
+      {/* Center section — band pills, centered */}
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 3,
       }}>
         {ALL_HF_BANDS.map((band) => {
           const isOpen = bandsOpen.includes(band);
@@ -115,7 +107,6 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
                 outline: 'none',
                 fontFamily: 'inherit',
                 lineHeight: 1,
-                position: 'relative',
               }}
             >
               <span>{band}</span>
@@ -133,50 +124,13 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
         })}
       </div>
 
-      {/* Spacer */}
-      <div style={{ flex: 1 }} />
-
-      {/* Center: Next satellite pass */}
+      {/* Right section — Grayline status + LIVE indicator */}
       <div style={{
+        flex: '0 0 120px',
         display: 'flex',
         alignItems: 'center',
-        gap: 5,
-        flexShrink: 0,
-        position: 'absolute',
-        left: '50%',
-        transform: 'translateX(-50%)',
-      }}>
-        <span style={{
-          color: '#4a5568',
-          fontSize: 9,
-          fontWeight: 600,
-          letterSpacing: 0.8,
-        }}>
-          NEXT SAT:
-        </span>
-        {nextPass ? (
-          <>
-            <span style={{ color: '#00d4ff', fontSize: 10, fontWeight: 700 }}>
-              {nextPass.satellite}
-            </span>
-            <span style={{ color: '#8899aa', fontSize: 9 }}>
-              in {formatPassCountdown(nextPass.aosTime)}
-            </span>
-          </>
-        ) : (
-          <span style={{ color: '#3a4555', fontSize: 9 }}>--</span>
-        )}
-      </div>
-
-      {/* Spacer */}
-      <div style={{ flex: 1 }} />
-
-      {/* Right: Grayline + LIVE */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
+        justifyContent: 'flex-end',
         gap: 8,
-        flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{
@@ -192,7 +146,7 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
             fontSize: 9,
             fontWeight: 700,
           }}>
-            {grayLineActive ? 'ACTIVE' : 'INACTIVE'}
+            {grayLineActive ? 'ACTIVE' : 'OFF'}
           </span>
         </div>
 

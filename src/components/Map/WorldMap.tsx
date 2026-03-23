@@ -490,52 +490,35 @@ function MaidenheadGrid() {
 }
 
 // ── Callsign prefix label data ────────────────────────────────────
+// Only ~27 major prefixes to avoid overlap, especially in Europe/Asia
 const CALLSIGN_PREFIXES = [
-  { prefix: 'W/K/N', lat: 39.8, lng: -98.6, size: 12 },   // USA
-  { prefix: 'VE', lat: 56.1, lng: -106.3, size: 11 },      // Canada
-  { prefix: 'G', lat: 52.0, lng: -1.2, size: 10 },          // UK
-  { prefix: 'F', lat: 46.2, lng: 2.2, size: 10 },           // France
-  { prefix: 'DL', lat: 51.2, lng: 10.4, size: 10 },         // Germany
-  { prefix: 'I', lat: 41.9, lng: 12.5, size: 10 },          // Italy
-  { prefix: 'EA', lat: 40.4, lng: -3.7, size: 10 },         // Spain
-  { prefix: 'JA', lat: 36.2, lng: 138.3, size: 11 },        // Japan
-  { prefix: 'VK', lat: -25.3, lng: 134.8, size: 11 },       // Australia
-  { prefix: 'ZL', lat: -41.3, lng: 174.8, size: 10 },       // New Zealand
-  { prefix: 'PY', lat: -14.2, lng: -51.9, size: 11 },       // Brazil
-  { prefix: 'LU', lat: -38.4, lng: -63.6, size: 10 },       // Argentina
-  { prefix: 'UA', lat: 55.8, lng: 37.6, size: 11 },         // Russia
-  { prefix: 'BY', lat: 35.9, lng: 104.2, size: 11 },        // China
-  { prefix: 'HL', lat: 37.6, lng: 127.0, size: 10 },        // South Korea
-  { prefix: 'VU', lat: 20.6, lng: 79.0, size: 11 },         // India
-  { prefix: 'ZS', lat: -30.6, lng: 22.9, size: 10 },        // South Africa
-  { prefix: 'SV', lat: 39.1, lng: 21.8, size: 9 },          // Greece
-  { prefix: 'OZ', lat: 56.3, lng: 9.5, size: 9 },           // Denmark
-  { prefix: 'SM', lat: 60.1, lng: 18.6, size: 9 },          // Sweden
-  { prefix: 'LA', lat: 60.5, lng: 8.5, size: 9 },           // Norway
-  { prefix: 'OH', lat: 61.9, lng: 25.7, size: 9 },          // Finland
-  { prefix: 'PA', lat: 52.1, lng: 5.3, size: 9 },           // Netherlands
-  { prefix: 'ON', lat: 50.5, lng: 4.5, size: 9 },           // Belgium
-  { prefix: 'HB', lat: 46.8, lng: 8.2, size: 9 },           // Switzerland
-  { prefix: 'OE', lat: 47.5, lng: 14.6, size: 9 },          // Austria
-  { prefix: 'SP', lat: 51.9, lng: 19.1, size: 9 },          // Poland
-  { prefix: 'OK', lat: 49.8, lng: 15.5, size: 9 },          // Czech Republic
-  { prefix: 'HA', lat: 47.2, lng: 19.5, size: 9 },          // Hungary
-  { prefix: 'CT', lat: 39.4, lng: -8.2, size: 9 },          // Portugal
-  { prefix: 'EI', lat: 53.4, lng: -8.2, size: 9 },          // Ireland
-  { prefix: 'XE', lat: 23.6, lng: -102.6, size: 10 },       // Mexico
-  { prefix: 'CE', lat: -35.7, lng: -71.5, size: 10 },       // Chile
-  { prefix: 'HK', lat: 4.6, lng: -74.1, size: 9 },          // Colombia
-  { prefix: 'YB', lat: -0.8, lng: 113.9, size: 10 },        // Indonesia
-  { prefix: 'HS', lat: 15.9, lng: 100.5, size: 9 },         // Thailand
-  { prefix: '9V', lat: 1.4, lng: 103.8, size: 9 },          // Singapore
-  { prefix: '9M', lat: 4.2, lng: 101.7, size: 9 },          // Malaysia
-  { prefix: 'DU', lat: 12.9, lng: 121.8, size: 9 },         // Philippines
-  { prefix: 'A6', lat: 23.4, lng: 53.8, size: 9 },          // UAE
-  { prefix: '4X', lat: 31.0, lng: 34.8, size: 9 },          // Israel
-  { prefix: 'TA', lat: 39.9, lng: 32.9, size: 9 },          // Turkey
-  { prefix: 'UA0', lat: 55.8, lng: 82.0, size: 9 },         // Russia (east)
-  { prefix: 'BV', lat: 25.0, lng: 121.5, size: 9 },         // Taiwan
-  { prefix: 'YO', lat: 45.9, lng: 24.9, size: 9 },          // Romania
+  { prefix: 'W/K/N', lat: 39.8, lng: -98.6, size: 11 },   // USA
+  { prefix: 'VE', lat: 56.1, lng: -106.3, size: 10 },      // Canada
+  { prefix: 'G', lat: 54.0, lng: -2.0, size: 9 },           // UK
+  { prefix: 'F', lat: 46.2, lng: 2.2, size: 9 },            // France
+  { prefix: 'DL', lat: 51.2, lng: 10.4, size: 9 },          // Germany
+  { prefix: 'I', lat: 42.5, lng: 12.5, size: 9 },           // Italy
+  { prefix: 'EA', lat: 40.4, lng: -3.7, size: 9 },          // Spain
+  { prefix: 'UA', lat: 55.8, lng: 37.6, size: 10 },         // Russia
+  { prefix: 'SM', lat: 62.0, lng: 18.6, size: 8 },          // Sweden
+  { prefix: 'JA', lat: 36.2, lng: 138.3, size: 10 },        // Japan
+  { prefix: 'VK', lat: -25.3, lng: 134.8, size: 10 },       // Australia
+  { prefix: 'ZL', lat: -41.3, lng: 174.8, size: 9 },        // New Zealand
+  { prefix: 'PY', lat: -14.2, lng: -51.9, size: 10 },       // Brazil
+  { prefix: 'LU', lat: -38.4, lng: -63.6, size: 9 },        // Argentina
+  { prefix: 'BY', lat: 35.9, lng: 104.2, size: 10 },        // China
+  { prefix: 'HL', lat: 37.6, lng: 127.0, size: 9 },         // South Korea
+  { prefix: 'VU', lat: 20.6, lng: 79.0, size: 10 },         // India
+  { prefix: 'ZS', lat: -30.6, lng: 22.9, size: 9 },         // South Africa
+  { prefix: 'XE', lat: 23.6, lng: -102.6, size: 9 },        // Mexico
+  { prefix: 'CE', lat: -35.7, lng: -71.5, size: 9 },        // Chile
+  { prefix: 'HK', lat: 4.6, lng: -74.1, size: 8 },          // Colombia
+  { prefix: 'YB', lat: -0.8, lng: 113.9, size: 9 },         // Indonesia
+  { prefix: 'HS', lat: 15.9, lng: 100.5, size: 8 },         // Thailand
+  { prefix: 'DU', lat: 12.9, lng: 121.8, size: 8 },         // Philippines
+  { prefix: 'A6', lat: 23.4, lng: 53.8, size: 8 },          // UAE
+  { prefix: 'TA', lat: 39.9, lng: 32.9, size: 8 },          // Turkey
+  { prefix: 'UA0', lat: 55.8, lng: 90.0, size: 8 },         // Russia (east)
 ];
 
 // ── Sub-component: Callsign prefix labels ─────────────────────────
@@ -554,7 +537,7 @@ function CallsignPrefixLabels() {
       L.marker([lat, lng], {
         icon: L.divIcon({
           className: 'prefix-label',
-          html: `<span style="color:#fff;font-size:${size}px;font-weight:700;text-shadow:0 0 4px #000,0 0 2px #000;font-family:monospace;white-space:nowrap">${prefix}</span>`,
+          html: `<span style="color:#fff;font-size:${size}px;font-weight:700;text-shadow:0 0 5px #000,0 0 3px #000,0 1px 2px #000;font-family:monospace;white-space:nowrap;background:rgba(0,0,0,0.4);padding:1px 3px;border-radius:2px">${prefix}</span>`,
           iconSize: [0, 0],
           iconAnchor: [0, 0],
         }),

@@ -110,7 +110,7 @@ function AppInner() {
       style={{
         display: 'grid',
         gridTemplateRows: '44px 1fr 32px',
-        gridTemplateColumns: '240px 1fr 280px',
+        gridTemplateColumns: '260px 1fr 260px',
         height: '100vh',
         background: '#1a2332',
         color: '#e0e0e0',
