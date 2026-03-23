@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import { useStore as useAppStore } from './hooks/useStore';
 import { useDataFetch } from './hooks/useDataFetch';
 import { useIsMobile } from './hooks/useIsMobile';
+import { callsignPrefixToLocation, latLngToGrid } from './utils/hamradio';
 import SetupScreen from './components/SetupScreen';
 import Header from './components/Panels/Header';
 import SolarPanel from './components/Panels/SolarPanel';
@@ -252,6 +253,8 @@ function MobileHeader({ callsign, onCallsignChange }: { callsign?: string; onCal
 function AppInner() {
   const callsign = useAppStore((s) => s.callsign);
   const setCallsign = useAppStore((s) => s.setCallsign);
+  const setGridSquare = useAppStore((s) => s.setGridSquare);
+  const setUserLocation = useAppStore((s) => s.setUserLocation);
   const solar = useAppStore((s) => s.solar);
   const bands = useAppStore((s) => s.bands);
   const dxSpots = useAppStore((s) => s.dxSpots);
@@ -264,6 +267,16 @@ function AppInner() {
   const [dxLocation, setDxLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useDataFetch();
+
+  // Update callsign + grid/location from prefix lookup
+  const handleCallsignChange = useCallback((cs: string) => {
+    setCallsign(cs);
+    const loc = callsignPrefixToLocation(cs);
+    if (loc) {
+      setUserLocation(loc.lat, loc.lng);
+      setGridSquare(latLngToGrid(loc.lat, loc.lng));
+    }
+  }, [setCallsign, setUserLocation, setGridSquare]);
 
   // Derive which bands are currently open (day = Good or Fair)
   const bandsOpen = useMemo(() => {
@@ -357,7 +370,7 @@ function AppInner() {
         }}
       >
         {/* Mobile Header — 40px */}
-        <MobileHeader callsign={callsign} onCallsignChange={setCallsign} />
+        <MobileHeader callsign={callsign} onCallsignChange={handleCallsignChange} />
 
         {/* Map — 50vh */}
         <div style={{
@@ -424,7 +437,7 @@ function AppInner() {
     >
       {/* Row 1: Header spanning all columns */}
       <div style={{ gridColumn: '1 / -1', background: '#080c12' }}>
-        <Header callsign={callsign} onCallsignChange={setCallsign} />
+        <Header callsign={callsign} onCallsignChange={handleCallsignChange} />
       </div>
 
       {/* Row 2, Col 1: Left sidebar — Solar Panel + tabbed widgets */}
