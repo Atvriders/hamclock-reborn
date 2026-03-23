@@ -382,6 +382,15 @@ async function fetchSatelliteData() {
   const allTLEs = parseTLEs(text);
   const filtered = allTLEs.filter(t => t.name && matchesSatName(t.name));
 
+  // Cache ISS TLE separately for pass prediction
+  const issTle = allTLEs.find(t => {
+    const upper = t.name.toUpperCase();
+    return upper.includes('ISS (ZARYA)') || upper === 'ISS';
+  });
+  if (issTle) {
+    cache._issTle = issTle;
+  }
+
   // If filtering yields too few, include all amateur sats (capped)
   const tles = filtered.length >= 3 ? filtered : allTLEs.slice(0, 25);
 
@@ -522,6 +531,124 @@ app.get('/api/maps/drap', serveCached('mapDrap', { status: 'loading' }));
 app.get('/api/maps/aurora', serveCached('mapAurora', { status: 'loading' }));
 app.get('/api/solar/image', serveCached('solarImage', { status: 'loading' }));
 app.get('/api/maps/foF2', serveCached('mapFoF2', { status: 'loading' }));
+
+// ---------------------------------------------------------------------------
+// Endpoint: GET /api/iss-pass?lat=40&lng=-74 — predict next ISS pass
+// ---------------------------------------------------------------------------
+app.get('/api/iss-pass', (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+
+  if (isNaN(lat) || isNaN(lng)) {
+    return res.status(400).json({ error: 'Missing or invalid lat/lng parameters' });
+  }
+
+  // Find ISS TLE from cached satellite data
+  const satData = cache.satellites.data;
+  if (!satData) {
+    return res.json({ name: 'ISS', nextPass: null });
+  }
+
+  // Re-parse TLEs from the raw text isn't possible since we only cache propagated positions.
+  // We need the raw TLEs. Let's check if we stored them.
+  // Actually, fetchSatelliteData doesn't store raw TLEs. We need to find the ISS TLE
+  // from a separate approach: re-fetch from the allTLEs we parsed.
+  // Better: let's store the raw TLE data in cache too.
+  // For now, we'll use a dedicated TLE cache that the satellite poll populates.
+
+  const issTle = cache._issTle;
+  if (!issTle) {
+    return res.json({ name: 'ISS', nextPass: null });
+  }
+
+  try {
+    const satrec = satellite.twoline2satrec(issTle.line1, issTle.line2);
+    const now = new Date();
+    const observerGd = {
+      longitude: satellite.degreesToRadians(lng),
+      latitude: satellite.degreesToRadians(lat),
+      height: 0, // assume sea level
+    };
+
+    // Scan next 24 hours in 30-second steps
+    const STEP_MS = 30 * 1000;
+    const SCAN_MS = 24 * 60 * 60 * 1000;
+
+    let aosTime = null;
+    let losTime = null;
+    let maxEl = 0;
+    let aosAz = 0;
+    let losAz = 0;
+    let prevElDeg = -999;
+    let inPass = false;
+
+    for (let dt = 0; dt <= SCAN_MS; dt += STEP_MS) {
+      const t = new Date(now.getTime() + dt);
+      const posVel = satellite.propagate(satrec, t);
+      if (!posVel.position) continue;
+
+      const gmst = satellite.gstime(t);
+      const posEcf = satellite.eciToEcf(posVel.position, gmst);
+      const lookAngles = satellite.ecfToLookAngles(observerGd, posEcf);
+
+      const elDeg = satellite.radiansToDegrees(lookAngles.elevation);
+      const azDeg = satellite.radiansToDegrees(lookAngles.azimuth);
+
+      if (!inPass && elDeg > 0 && prevElDeg <= 0) {
+        // AOS found
+        inPass = true;
+        aosTime = t;
+        aosAz = azDeg;
+        maxEl = elDeg;
+      } else if (inPass && elDeg > maxEl) {
+        maxEl = elDeg;
+      }
+
+      if (inPass && elDeg <= 0 && prevElDeg > 0) {
+        // LOS found
+        losTime = t;
+        losAz = azDeg;
+        break;
+      }
+
+      prevElDeg = elDeg;
+    }
+
+    if (!aosTime || !losTime) {
+      return res.json({ name: 'ISS', nextPass: null });
+    }
+
+    const durationSec = Math.round((losTime.getTime() - aosTime.getTime()) / 1000);
+    const countdownSec = Math.round((aosTime.getTime() - now.getTime()) / 1000);
+
+    // Format countdown
+    let countdown;
+    if (countdownSec <= 0) {
+      countdown = 'NOW';
+    } else {
+      const h = Math.floor(countdownSec / 3600);
+      const m = Math.floor((countdownSec % 3600) / 60);
+      countdown = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    // Normalize azimuths to 0-360
+    const normAz = (az) => ((az % 360) + 360) % 360;
+
+    res.json({
+      name: 'ISS',
+      aosTime: aosTime.toISOString(),
+      losTime: losTime.toISOString(),
+      maxElevation: Math.round(maxEl),
+      duration: durationSec,
+      aosAzimuth: Math.round(normAz(aosAz)),
+      losAzimuth: Math.round(normAz(losAz)),
+      countdown,
+    });
+  } catch (err) {
+    console.error(`[iss-pass] Prediction failed: ${err.message}`);
+    res.json({ name: 'ISS', nextPass: null });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Endpoint: /api/solar/proxy/:type — Proxy SDO solar images (avoids CORS)

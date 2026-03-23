@@ -13,6 +13,7 @@ import WorldMap from './components/Map/WorldMap';
 import SolarImage from './components/Widgets/SolarImage';
 import EnlilWidget from './components/Widgets/EnlilWidget';
 import PropPrediction from './components/Widgets/PropPrediction';
+import ISSPass from './components/Widgets/ISSPass';
 
 // ── Error Boundary ──────────────────────────────────────────────────
 
@@ -109,6 +110,9 @@ function AppInner() {
         </div>
         <div style={{ flex: 1, overflow: 'auto', borderBottom: '1px solid #1a2332' }}>
           <DXPanel spots={dxSpots} />
+        </div>
+        <div style={{ flexShrink: 0, borderBottom: '1px solid #1a2332' }}>
+          <ISSPass userLat={userLat} userLng={userLng} />
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 200 }}>
           <XRayFlux />
