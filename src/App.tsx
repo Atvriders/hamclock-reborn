@@ -12,6 +12,8 @@ import XRayFlux from './components/Widgets/XRayFlux';
 import WorldMap from './components/Map/WorldMap';
 import SolarImage from './components/Widgets/SolarImage';
 import EnlilWidget from './components/Widgets/EnlilWidget';
+import DRAPWidget from './components/Widgets/DRAPWidget';
+import AuroraWidget from './components/Widgets/AuroraWidget';
 import PropPrediction from './components/Widgets/PropPrediction';
 import ISSPass from './components/Widgets/ISSPass';
 import HRDLogGraph from './components/Widgets/HRDLogGraph';
@@ -139,6 +141,8 @@ function AppInner() {
           tabs={[
             { label: 'Enlil', content: <EnlilWidget /> },
             { label: 'SDO Solar', content: <SolarImage /> },
+            { label: 'DRAP', content: <DRAPWidget /> },
+            { label: 'Aurora', content: <AuroraWidget /> },
           ]}
         />
       </div>

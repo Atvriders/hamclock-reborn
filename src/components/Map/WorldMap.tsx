@@ -56,13 +56,8 @@ const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoo
 // ── Overlay URLs ─────────────────────────────────────────────────
 // KC2G SVG is the only working MUF render (PNG returns 404)
 const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
-const AURORA_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg';
-const DRAP_OVERLAY_URL = 'https://services.swpc.noaa.gov/images/d-rap/global.png';
-
-const WORLD_BOUNDS: L.LatLngBoundsExpression = [[-90, -180], [90, 180]];
 // KC2G SVG has axis labels — extend bounds to compensate for margins
 const MUF_BOUNDS: L.LatLngBoundsExpression = [[-100, -200], [100, 200]];
-const NORTH_BOUNDS: L.LatLngBoundsExpression = [[0, -180], [90, 180]];
 
 // ── Props ─────────────────────────────────────────────────────────
 interface WorldMapProps {
@@ -105,8 +100,6 @@ interface LayerState {
   dayNight: boolean;
   grayLine: boolean;
   muf: boolean;
-  drap: boolean;
-  aurora: boolean;
   gridSquares: boolean;
 }
 
@@ -114,8 +107,6 @@ const DEFAULT_LAYERS: LayerState = {
   dayNight: true,
   grayLine: true,
   muf: false,
-  drap: false,
-  aurora: false,
   gridSquares: false,
 };
 
@@ -715,8 +706,6 @@ function LayerControlPanel({
             {checkboxRow('Day/Night', 'dayNight')}
             {checkboxRow('Gray Line', 'grayLine')}
             {checkboxRow('MUF Map', 'muf')}
-            {checkboxRow('DRAP', 'drap')}
-            {checkboxRow('Aurora', 'aurora')}
             {checkboxRow('Grid Squares', 'gridSquares')}
           </div>
 
@@ -765,8 +754,6 @@ export default function WorldMap({
       setLayers((prev) => ({
         ...prev,
         muf: true,
-        drap: false,
-        aurora: false,
       }));
     }
   }, [selectedBand]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -778,28 +765,11 @@ export default function WorldMap({
     return () => clearInterval(id);
   }, []);
 
-  // Overlay keys that are mutually exclusive (radio group)
-  const OVERLAY_RADIO_KEYS: (keyof LayerState)[] = ['muf', 'drap', 'aurora'];
-
   const toggleLayer = useCallback((key: keyof LayerState) => {
-    setLayers((prev) => {
-      // If toggling one of the radio-group overlays, turn off the others
-      if (OVERLAY_RADIO_KEYS.includes(key)) {
-        const turning_on = !prev[key];
-        const updates: Partial<LayerState> = {};
-        for (const k of OVERLAY_RADIO_KEYS) {
-          updates[k] = k === key ? turning_on : false;
-        }
-        return { ...prev, ...updates };
-      }
-      // Independent toggles (dayNight, grayLine, gridSquares)
-      return { ...prev, [key]: !prev[key] };
-    });
+    setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
   const mufUrl = `${MUF_OVERLAY_URL}?_=${cacheBust}`;
-  const drapUrl = `${DRAP_OVERLAY_URL}?_=${cacheBust}`;
-  const auroraUrl = `${AURORA_OVERLAY_URL}?_=${cacheBust}`;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -950,28 +920,6 @@ export default function WorldMap({
             opacity={0.95}
             interactive={false}
             className="muf-overlay"
-          />
-        )}
-
-        {/* DRAP overlay */}
-        {layers.drap && (
-          <ImageOverlay
-            url={drapUrl}
-            bounds={WORLD_BOUNDS}
-            opacity={0.55}
-            interactive={false}
-            className="drap-overlay"
-          />
-        )}
-
-        {/* Aurora overlay (northern hemisphere) */}
-        {layers.aurora && (
-          <ImageOverlay
-            url={auroraUrl}
-            bounds={NORTH_BOUNDS}
-            opacity={0.5}
-            interactive={false}
-            className="aurora-overlay"
           />
         )}
 

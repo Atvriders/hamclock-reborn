@@ -1,0 +1,175 @@
+import React, { useState, useEffect, useCallback } from 'react';
+
+const AURORA_URLS = [
+  'https://services.swpc.noaa.gov/images/aurora-forecast-northern-hemisphere.jpg',
+];
+
+const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
+
+const AuroraWidget: React.FC = () => {
+  const [urlIndex, setUrlIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [cacheBust, setCacheBust] = useState(Date.now());
+  const [expanded, setExpanded] = useState(false);
+
+  const currentUrl = AURORA_URLS[urlIndex] ?? AURORA_URLS[0];
+  const imageUrl = `${currentUrl}?t=${cacheBust}`;
+
+  const refresh = useCallback(() => {
+    setUrlIndex(0);
+    setCacheBust(Date.now());
+    setLoading(true);
+    setError(false);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(refresh, REFRESH_INTERVAL);
+    return () => clearInterval(id);
+  }, [refresh]);
+
+  const handleError = useCallback(() => {
+    setUrlIndex(prev => {
+      const next = prev + 1;
+      if (next < AURORA_URLS.length) {
+        setLoading(true);
+        setError(false);
+        return next;
+      }
+      setLoading(false);
+      setError(true);
+      return prev;
+    });
+  }, []);
+
+  const handleLoad = useCallback(() => {
+    setLoading(false);
+    setError(false);
+  }, []);
+
+  return (
+    <div style={{
+      padding: '10px 14px',
+      fontFamily: "'Courier New', Courier, monospace",
+      background: '#0d1117',
+      borderBottom: '1px solid #1a2332',
+    }}>
+      {/* Header */}
+      <div style={{
+        color: '#ffffff',
+        fontSize: 11,
+        fontWeight: 'bold',
+        letterSpacing: 1.5,
+        marginBottom: 6,
+        paddingBottom: 4,
+        borderBottom: '1px solid #1a2332',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}>
+        <span>AURORA</span>
+        <span
+          onClick={refresh}
+          style={{ fontSize: 10, color: '#4a5568', cursor: 'pointer' }}
+          title="Refresh"
+        >
+          ↻
+        </span>
+      </div>
+
+      {/* Image */}
+      <div
+        style={{
+          width: '100%',
+          minHeight: 80,
+          background: '#0a0e14',
+          borderRadius: 4,
+          border: '1px solid #1a2332',
+          overflow: 'hidden',
+          cursor: 'pointer',
+          position: 'relative',
+        }}
+        onClick={() => !error && setExpanded(true)}
+        title="Aurora Forecast Northern Hemisphere — click to expand"
+      >
+        {loading && !error && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#4a5568', fontSize: 10,
+          }}>
+            Loading...
+          </div>
+        )}
+
+        {error && (
+          <div style={{
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            padding: 16, color: '#4a5568', fontSize: 10, gap: 3,
+          }}>
+            <span style={{ fontSize: 16 }}>X</span>
+            <span>No Aurora data</span>
+            <span onClick={(e) => { e.stopPropagation(); refresh(); }}
+              style={{ color: '#00d4ff', cursor: 'pointer', fontSize: 9 }}>
+              Tap to retry
+            </span>
+          </div>
+        )}
+
+        <img
+          key={`aurora-${urlIndex}-${cacheBust}`}
+          src={imageUrl}
+          alt="Aurora Forecast Northern Hemisphere"
+          onLoad={handleLoad}
+          onError={handleError}
+          style={{
+            width: '100%',
+            height: 'auto',
+            display: loading || error ? 'none' : 'block',
+          }}
+        />
+      </div>
+
+      <div style={{ fontSize: 8, color: '#4a5568', marginTop: 3 }}>
+        Aurora forecast (northern hemisphere) — NOAA/SWPC
+      </div>
+
+      {/* Expanded modal */}
+      {expanded && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.9)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+          onClick={() => setExpanded(false)}
+        >
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setExpanded(false)}
+              style={{
+                position: 'absolute', top: -30, right: 0,
+                background: 'none', border: 'none', color: '#fff',
+                fontSize: 20, cursor: 'pointer',
+              }}
+            >
+              X
+            </button>
+            <img
+              src={imageUrl}
+              alt="Aurora (expanded)"
+              style={{
+                maxWidth: '90vw', maxHeight: '85vh',
+                border: '2px solid #1a2332', borderRadius: 8,
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default AuroraWidget;
