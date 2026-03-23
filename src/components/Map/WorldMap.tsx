@@ -7,7 +7,6 @@ import {
   Marker,
   Popup,
   Tooltip,
-  ImageOverlay,
   useMap,
   useMapEvents,
 } from 'react-leaflet';
@@ -53,12 +52,6 @@ const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoo
   },
 };
 
-// ── Overlay URLs ─────────────────────────────────────────────────
-// KC2G SVG is the only working MUF render (PNG returns 404)
-const MUF_OVERLAY_URL = 'https://prop.kc2g.com/renders/current/mufd-normal-now.svg';
-// KC2G SVG has axis labels — extend bounds to compensate for margins
-const MUF_BOUNDS: L.LatLngBoundsExpression = [[-100, -200], [100, 200]];
-
 // ── Props ─────────────────────────────────────────────────────────
 interface WorldMapProps {
   dxSpots: DXSpot[];
@@ -94,6 +87,201 @@ const BAND_COLORS: Record<string, string> = {
   '10m': '#8844ff',
   '6m': '#ff44ff',
 };
+
+// ── Propagation heat map helpers ──────────────────────────────────
+
+/** Haversine distance in km between two lat/lng points */
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => d * Math.PI / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Midpoint of a great circle path */
+function midpoint(lat1: number, lng1: number, lat2: number, lng2: number): [number, number] {
+  const toRad = (d: number) => d * Math.PI / 180;
+  const toDeg = (r: number) => r * 180 / Math.PI;
+  const phi1 = toRad(lat1), lam1 = toRad(lng1);
+  const phi2 = toRad(lat2), lam2 = toRad(lng2);
+  const Bx = Math.cos(phi2) * Math.cos(lam2 - lam1);
+  const By = Math.cos(phi2) * Math.sin(lam2 - lam1);
+  const phiM = Math.atan2(
+    Math.sin(phi1) + Math.sin(phi2),
+    Math.sqrt((Math.cos(phi1) + Bx) ** 2 + By ** 2)
+  );
+  const lamM = lam1 + Math.atan2(By, Math.cos(phi1) + Bx);
+  return [toDeg(phiM), toDeg(lamM)];
+}
+
+/** Calculate propagation reliability (0-100) from QTH to a target cell */
+function calcReliability(
+  userLat: number, userLng: number,
+  cellLat: number, cellLng: number,
+  bandMhz: number, now: Date
+): number {
+  const distKm = haversineDistance(userLat, userLng, cellLat, cellLng);
+
+  // Skip cells very close to QTH (ground wave, always works)
+  if (distKm < 100) return 90;
+
+  // Base reliability — derive from band and time
+  // Higher bands need solar ionization (daytime), lower bands prefer night
+  let reliability = 55; // baseline "fair"
+
+  // Distance factor: optimal propagation range per band
+  let optimalMin: number, optimalMax: number, maxRange: number;
+  if (bandMhz <= 5) {        // 80m
+    optimalMin = 200; optimalMax = 2000; maxRange = 5000;
+  } else if (bandMhz <= 8) {  // 40m
+    optimalMin = 500; optimalMax = 4000; maxRange = 8000;
+  } else if (bandMhz <= 12) { // 30m
+    optimalMin = 500; optimalMax = 5000; maxRange = 10000;
+  } else if (bandMhz <= 16) { // 20m
+    optimalMin = 1000; optimalMax = 8000; maxRange = 15000;
+  } else if (bandMhz <= 19) { // 17m
+    optimalMin = 1500; optimalMax = 10000; maxRange = 16000;
+  } else if (bandMhz <= 22) { // 15m
+    optimalMin = 2000; optimalMax = 12000; maxRange = 18000;
+  } else if (bandMhz <= 26) { // 12m
+    optimalMin = 2500; optimalMax = 13000; maxRange = 18000;
+  } else if (bandMhz <= 30) { // 10m
+    optimalMin = 2000; optimalMax = 15000; maxRange = 20000;
+  } else {                     // 6m
+    optimalMin = 1000; optimalMax = 3000; maxRange = 5000;
+  }
+
+  // Distance scoring
+  let distFactor: number;
+  if (distKm < optimalMin) {
+    // Too close for skip — "dead zone"
+    distFactor = distKm < 50 ? 0.9 : Math.max(0.05, distKm / optimalMin);
+  } else if (distKm <= optimalMax) {
+    // Sweet spot
+    distFactor = 1.0;
+  } else if (distKm <= maxRange) {
+    // Beyond optimal but still reachable
+    distFactor = Math.max(0, 1 - (distKm - optimalMax) / (maxRange - optimalMax));
+  } else {
+    distFactor = 0;
+  }
+  reliability *= (0.2 + 0.8 * distFactor);
+
+  // Time of day factor — check midpoint of path
+  const [midLat, midLng] = midpoint(userLat, userLng, cellLat, cellLng);
+  const midElev = solarElevation(midLat, midLng, now);
+  const isDay = midElev > 0;
+  const isTwilight = midElev > -6 && midElev <= 0;
+
+  if (bandMhz >= 14) {
+    // Higher bands (20m and up) need daylight ionization
+    if (isDay) {
+      // Stronger with higher sun
+      reliability *= (0.7 + 0.3 * Math.min(1, midElev / 45));
+    } else if (isTwilight) {
+      reliability *= 0.4;
+    } else {
+      reliability *= 0.1; // Almost dead at night
+    }
+    // 6m is especially solar-dependent
+    if (bandMhz >= 50 && !isDay) {
+      reliability *= 0.05;
+    }
+  } else {
+    // Lower bands (40m, 80m) prefer night
+    if (!isDay) {
+      reliability *= 1.1; // Boost at night
+    } else {
+      // D-layer absorption during day kills low bands at distance
+      const dayPenalty = bandMhz < 5 ? 0.25 : 0.5;
+      reliability *= dayPenalty;
+    }
+  }
+
+  // 30m is a transition band — moderate in both day and night
+  if (bandMhz >= 10 && bandMhz < 12) {
+    reliability *= 0.9; // slight penalty — it's a narrow band
+  }
+
+  return Math.max(0, Math.min(100, reliability));
+}
+
+/** Map reliability percentage to a semi-transparent color */
+function reliabilityColor(pct: number): string {
+  if (pct >= 80) return 'rgba(0, 200, 255, 0.35)';   // cyan — excellent
+  if (pct >= 60) return 'rgba(0, 255, 100, 0.3)';     // green — good
+  if (pct >= 40) return 'rgba(255, 255, 0, 0.25)';    // yellow — fair
+  if (pct >= 20) return 'rgba(255, 165, 0, 0.25)';    // orange — marginal
+  return 'rgba(255, 50, 50, 0.2)';                      // red — poor
+}
+
+/** Heat map cell data */
+interface HeatCell {
+  lat1: number; lng1: number;
+  lat2: number; lng2: number;
+  color: string;
+}
+
+// ── Sub-component: Propagation heat map ──────────────────────────
+function PropagationHeatMap({
+  userLat, userLng, bandMhz,
+}: {
+  userLat: number; userLng: number; bandMhz: number;
+}) {
+  const [cells, setCells] = useState<HeatCell[]>([]);
+
+  useEffect(() => {
+    const compute = () => {
+      const now = new Date();
+      const step = 10; // 10° grid
+      const result: HeatCell[] = [];
+
+      for (let lat = -90; lat < 90; lat += step) {
+        for (let lng = -180; lng < 180; lng += step) {
+          const cellCenterLat = lat + step / 2;
+          const cellCenterLng = lng + step / 2;
+          const rel = calcReliability(
+            userLat, userLng,
+            cellCenterLat, cellCenterLng,
+            bandMhz, now
+          );
+          result.push({
+            lat1: lat, lng1: lng,
+            lat2: lat + step, lng2: lng + step,
+            color: reliabilityColor(rel),
+          });
+        }
+      }
+      setCells(result);
+    };
+
+    compute();
+    const id = setInterval(compute, 300_000); // refresh every 5 min
+    return () => clearInterval(id);
+  }, [userLat, userLng, bandMhz]);
+
+  return (
+    <>
+      {cells.map((c, i) => (
+        <Rectangle
+          key={`prop-${i}`}
+          bounds={[[c.lat1, c.lng1], [c.lat2, c.lng2]]}
+          pathOptions={{
+            fillColor: c.color,
+            fillOpacity: 1,
+            fill: true,
+            stroke: false,
+            interactive: false,
+            color: c.color,
+          }}
+        />
+      ))}
+    </>
+  );
+}
 
 // ── Layer visibility state ────────────────────────────────────────
 interface LayerState {
@@ -848,18 +1036,9 @@ export default function WorldMap({
     }
   }, [selectedBand]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cache-bust overlay URLs every 10 minutes
-  const [cacheBust, setCacheBust] = useState(() => Math.floor(Date.now() / 600_000));
-  useEffect(() => {
-    const id = setInterval(() => setCacheBust(Math.floor(Date.now() / 600_000)), 600_000);
-    return () => clearInterval(id);
-  }, []);
-
   const toggleLayer = useCallback((key: keyof LayerState) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
-
-  const mufUrl = `${MUF_OVERLAY_URL}?_=${cacheBust}`;
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -929,10 +1108,10 @@ export default function WorldMap({
             }}
           >
             <span style={{ color: BAND_COLORS[selectedBand] || '#00d4ff', fontWeight: 700 }}>
-              MUF: {selectedBand} band ({BAND_FREQ_MAP[selectedBand].toFixed(1)} MHz)
+              Propagation: {selectedBand} band ({BAND_FREQ_MAP[selectedBand].toFixed(1)} MHz)
             </span>
             <span style={{ color: '#8899aa', marginLeft: 12 }}>
-              Areas above the {BAND_FREQ_MAP[selectedBand].toFixed(1)} contour line have propagation on {selectedBand}
+              Cyan=excellent Green=good Yellow=fair Orange=marginal Red=poor
             </span>
           </div>
 
@@ -956,7 +1135,7 @@ export default function WorldMap({
             }}
           >
             <div style={{ fontSize: '8px', color: '#667', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>
-              MUF Contour Legend
+              Band Reference
             </div>
             {Object.entries(BAND_FREQ_MAP).map(([band, freq]) => (
               <div
@@ -1008,14 +1187,12 @@ export default function WorldMap({
         {/* Day/Night terminator + gray line */}
         <NightOverlay showNight={layers.dayNight} showGray={layers.grayLine} />
 
-        {/* MUF overlay */}
-        {layers.muf && (
-          <ImageOverlay
-            url={mufUrl}
-            bounds={MUF_BOUNDS}
-            opacity={0.95}
-            interactive={false}
-            className="muf-overlay"
+        {/* Propagation heat map overlay */}
+        {layers.muf && selectedBand && BAND_FREQ_MAP[selectedBand] && userLat != null && userLng != null && (
+          <PropagationHeatMap
+            userLat={userLat}
+            userLng={userLng}
+            bandMhz={BAND_FREQ_MAP[selectedBand]}
           />
         )}
 
