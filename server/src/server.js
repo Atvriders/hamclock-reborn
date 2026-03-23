@@ -273,6 +273,19 @@ function freqToBand(freq) {
   return '2m+';
 }
 
+// Parse HamQTH time format: "HHMM YYYY-MM-DD" → ISO string
+function parseHamQTHTime(timeStr) {
+  if (!timeStr) return new Date().toISOString();
+  try {
+    // Format: "0524 2026-03-23"
+    const m = timeStr.match(/(\d{2})(\d{2})\s+(\d{4}-\d{2}-\d{2})/);
+    if (m) return new Date(`${m[3]}T${m[1]}:${m[2]}:00Z`).toISOString();
+    return new Date().toISOString();
+  } catch {
+    return new Date().toISOString();
+  }
+}
+
 // HamQTH CSV format: spotter^freq^dx^comment^time date^L^E^continent^band^country^distance
 function parseHamQTH(text) {
   const spots = [];
@@ -294,7 +307,7 @@ function parseHamQTH(text) {
       band: parts[8] || freqToBand(freq),
       mode: guessMode(freq, comment),
       comment: comment.trim(),
-      time: timeStr ? new Date(timeStr.replace(' ', 'T') + 'Z').toISOString() : new Date().toISOString(),
+      time: parseHamQTHTime(timeStr),
     });
     if (spots.length >= 30) break;
   }
