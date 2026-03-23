@@ -391,7 +391,7 @@ function AppInner() {
           WebkitOverflowScrolling: 'touch',
         }}>
           <PropagationBar
-            forecast={propagation}
+
             bandsOpen={bandsOpen}
             onBandSelect={setSelectedBand}
           />

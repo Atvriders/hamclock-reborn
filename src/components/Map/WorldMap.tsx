@@ -806,7 +806,7 @@ function SatelliteMarkers({ satellites }: { satellites: SatellitePosition[] }) {
             <div style={{ fontFamily: 'monospace', fontSize: '10px' }}>
               <strong style={{ color: '#76ff03' }}>{sat.name}</strong>
               <br />
-              Alt: {sat.alt.toFixed(0)} km
+              Alt: {typeof sat.alt === 'number' ? sat.alt.toFixed(0) : '?'} km
             </div>
           </Tooltip>
         </Marker>

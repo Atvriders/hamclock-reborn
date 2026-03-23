@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import { PropagationForecast } from '../../types';
 
 interface PropagationBarProps {
-  forecast: PropagationForecast | null;
   grayLineActive?: boolean;
   bandsOpen?: string[];
   onBandSelect?: (band: string | null) => void;

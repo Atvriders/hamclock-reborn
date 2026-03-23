@@ -49,27 +49,10 @@ export interface BandCondition {
   timeOfDay: TimeOfDay;
 }
 
-export interface BandConditionsData {
-  conditions: BandCondition[];
-  solarFlux: number;
-  aIndex: number;
-  kIndex: number;
-  signalNoise: string;
-  updated: string;
-}
-
 export interface BandConditions {
   conditions: Record<string, { day: string; night: string }>;
   signalNoise: string;          // e.g. "S3-S4"
   timestamp: string;
-}
-
-export interface SatelliteInfo {
-  name: string;
-  noradId: number;
-  position: SatellitePosition;
-  passes: SatellitePass[];
-  tle: TLE;
 }
 
 // --- DX Cluster ----------------------------------------------
@@ -211,12 +194,3 @@ export interface AppState {
   setError: (msg: string | null) => void;
 }
 
-// --- API Response Wrappers -----------------------------------
-
-export interface ApiResponse<T> {
-  ok: boolean;
-  data?: T;
-  error?: string;
-  cached?: boolean;
-  fetchedAt?: string;
-}

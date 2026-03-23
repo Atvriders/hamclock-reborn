@@ -45,6 +45,7 @@ const ISSPass: React.FC<ISSPassProps> = ({ userLat, userLng }) => {
     try {
       setLoading(true);
       const res = await fetch(`/api/iss-pass?lat=${userLat}&lng=${userLng}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: ISSPassData = await res.json();
       setData(json);
     } catch {

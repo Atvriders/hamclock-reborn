@@ -70,9 +70,9 @@ export function latLngToGrid(lat: number, lng: number): string {
   let adjLng = lng + 180;
   let adjLat = lat + 90;
 
-  // Field
-  const fldLng = Math.floor(adjLng / 20);
-  const fldLat = Math.floor(adjLat / 10);
+  // Field (clamp to 0-17 for valid A-R range)
+  const fldLng = Math.min(17, Math.floor(adjLng / 20));
+  const fldLat = Math.min(17, Math.floor(adjLat / 10));
   adjLng -= fldLng * 20;
   adjLat -= fldLat * 10;
 

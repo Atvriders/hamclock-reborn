@@ -24,15 +24,6 @@ const cache = {
   mapFoF2:    { data: null, ts: 0, ttl: 15 * 60_000 },
 };
 
-function getCached(key) {
-  const entry = cache[key];
-  if (entry.data && Date.now() - entry.ts < entry.ttl) return entry.data;
-  return null;
-}
-
-function getStaleOrNull(key) {
-  return cache[key].data || null;
-}
 
 function setCache(key, data) {
   cache[key].data = data;
@@ -160,7 +151,8 @@ async function fetchSolarData() {
   let kp = null;
   if (kpData.status === 'fulfilled' && Array.isArray(kpData.value) && kpData.value.length > 1) {
     const last = kpData.value[kpData.value.length - 1];
-    kp = parseFloat(last[1]);
+    const val = parseFloat(last[1]);
+    if (!isNaN(val)) kp = val;
   }
 
   // SFI — latest entry
@@ -168,7 +160,7 @@ async function fetchSolarData() {
   if (sfiData.status === 'fulfilled' && Array.isArray(sfiData.value) && sfiData.value.length > 0) {
     const last = sfiData.value[sfiData.value.length - 1];
     sfi = last.flux ?? last.f107 ?? last.value ?? null;
-    if (sfi != null) sfi = parseFloat(sfi);
+    if (sfi != null) { const v = parseFloat(sfi); sfi = isNaN(v) ? null : v; }
   }
 
   // SSN — last entry
@@ -176,7 +168,7 @@ async function fetchSolarData() {
   if (ssnData.status === 'fulfilled' && Array.isArray(ssnData.value) && ssnData.value.length > 0) {
     const last = ssnData.value[ssnData.value.length - 1];
     ssn = last.ssn ?? last['smoothed_ssn'] ?? last['ssn-smoothed'] ?? null;
-    if (ssn != null) ssn = parseFloat(ssn);
+    if (ssn != null) { const v = parseFloat(ssn); ssn = isNaN(v) ? null : v; }
   }
 
   // Solar wind speed
@@ -246,7 +238,7 @@ async function fetchBandData() {
 
   return {
     bands: conditions,
-    signalNoise: signalNoise ? parseFloat(signalNoise) || signalNoise : null,
+    signalNoise: signalNoise || null,
     aIndex: aIndex ? parseInt(aIndex, 10) : null,
     kIndex: kIndex ? parseInt(kIndex, 10) : null,
     solarFlux: solarFlux ? parseInt(solarFlux, 10) : null,
@@ -1003,7 +995,8 @@ app.get('/api/propagation', (req, res) => {
   const fromLng = parseFloat(req.query.fromLng);
   const toLat = parseFloat(req.query.toLat);
   const toLng = parseFloat(req.query.toLng);
-  const band = req.query.band || '20m';
+  const VALID_BANDS = Object.keys(BAND_FREQ_MHZ);
+  const band = VALID_BANDS.includes(req.query.band) ? req.query.band : '20m';
 
   if ([fromLat, fromLng, toLat, toLng].some(isNaN)) {
     return res.status(400).json({ error: 'Missing or invalid lat/lng parameters' });
