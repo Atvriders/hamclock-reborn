@@ -256,7 +256,6 @@ function AppInner() {
   const bands = useAppStore((s) => s.bands);
   const dxSpots = useAppStore((s) => s.dxSpots);
   const satellites = useAppStore((s) => s.satellites);
-  const propagation = useAppStore((s) => s.propagation);
   const userLat = useAppStore((s) => s.userLat);
   const userLng = useAppStore((s) => s.userLng);
   const isMobile = useIsMobile();
@@ -517,7 +516,6 @@ function AppInner() {
       {/* Row 3: Propagation bar spanning all columns */}
       <div style={{ gridColumn: '1 / -1', background: '#0a0e14' }}>
         <PropagationBar
-          forecast={propagation}
           bandsOpen={bandsOpen}
           onBandSelect={setSelectedBand}
         />
