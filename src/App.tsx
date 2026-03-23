@@ -11,6 +11,7 @@ import PropagationBar from './components/Panels/PropagationBar';
 import SatellitePanel from './components/Panels/SatellitePanel';
 import WorldMap from './components/Map/WorldMap';
 import SolarImage from './components/Widgets/SolarImage';
+import PropPrediction from './components/Widgets/PropPrediction';
 
 // ── Error Boundary ──────────────────────────────────────────────────
 
@@ -116,6 +117,9 @@ function AppInner() {
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 200 }}>
           <SatellitePanel satellites={satelliteInfos} />
+        </div>
+        <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 280 }}>
+          <PropPrediction userLat={userLat} userLng={userLng} bands={bands} />
         </div>
       </div>
 

@@ -9,9 +9,9 @@ const IMAGE_SOURCES = [
     label: '193',
     desc: 'AIA 193 (EUV)',
     urls: [
+      'https://soho.nascom.nasa.gov/data/realtime/eit_195/512/latest.jpg',
       '/api/solar/proxy/aia193',
       'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_512_0193.jpg',
-      'https://soho.nascom.nasa.gov/data/realtime/eit_195/512/latest.jpg',
     ],
   },
   {

@@ -564,6 +564,184 @@ app.get('/api/solar/proxy/:type', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Propagation prediction helpers
+// ---------------------------------------------------------------------------
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371; // Earth radius in km
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function initialBearing(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const dLng = toRad(lng2 - lng1);
+  const y = Math.sin(dLng) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+  return ((toDeg(Math.atan2(y, x)) % 360) + 360) % 360;
+}
+
+function coordToGrid(lat, lng) {
+  lat = Math.max(-90, Math.min(90, lat));
+  lng = Math.max(-180, Math.min(180, lng));
+  let aLng = lng + 180;
+  let aLat = lat + 90;
+  const fLng = Math.floor(aLng / 20);
+  const fLat = Math.floor(aLat / 10);
+  aLng -= fLng * 20;
+  aLat -= fLat * 10;
+  const sLng = Math.floor(aLng / 2);
+  const sLat = Math.floor(aLat / 1);
+  return (
+    String.fromCharCode(65 + fLng) +
+    String.fromCharCode(65 + fLat) +
+    sLng +
+    sLat
+  );
+}
+
+// Map band name to approximate center frequency in MHz
+const BAND_FREQ_MHZ = {
+  '160m': 1.9, '80m': 3.6, '60m': 5.3, '40m': 7.1, '30m': 10.1,
+  '20m': 14.1, '17m': 18.1, '15m': 21.2, '12m': 24.9, '10m': 28.3, '6m': 50.1,
+};
+
+// Condition string to a numeric score (0-100 base)
+function conditionScore(cond) {
+  if (!cond || cond === 'Unknown') return 30;
+  const c = cond.trim();
+  if (c === 'Good') return 85;
+  if (c === 'Fair') return 55;
+  if (c === 'Poor') return 20;
+  return 30;
+}
+
+function conditionLabel(score) {
+  if (score >= 60) return 'Good';
+  if (score >= 30) return 'Fair';
+  return 'Poor';
+}
+
+// Estimate best operating window (UTC hours) for a given band and distance
+function estimateBestTime(bandName, distKm) {
+  const freq = BAND_FREQ_MHZ[bandName] || 14;
+  // Low bands: nighttime; high bands: daytime
+  if (freq < 5) return '02:00-08:00 UTC';
+  if (freq < 8) return '22:00-06:00 UTC';
+  if (freq < 12) return '00:00-04:00 UTC';
+  if (freq < 16) return '12:00-20:00 UTC';
+  if (freq < 22) return '14:00-18:00 UTC';
+  if (freq < 30) return '14:00-18:00 UTC';
+  return '10:00-16:00 UTC';
+}
+
+// Estimate SNR based on reliability score and distance
+function estimateSnr(reliability, distKm) {
+  // Rough approximation: higher reliability → higher SNR, further distance → lower SNR
+  const base = (reliability / 100) * 25; // 0-25 dB range
+  const distPenalty = Math.min(8, distKm / 2000); // up to -8 dB for very long paths
+  return Math.max(-5, Math.round(base - distPenalty));
+}
+
+// Predict propagation reliability for a single band given conditions and path
+function predictBand(bandName, bandConditions, distKm, utcHour) {
+  const freq = BAND_FREQ_MHZ[bandName];
+  if (!freq) return { reliability: 0, condition: 'Poor', snr: -10 };
+
+  // Get day/night condition from cached data
+  const isDay = utcHour >= 6 && utcHour < 18; // simplified
+  let cond = 'Unknown';
+  if (bandConditions && bandConditions.bands) {
+    const tod = isDay ? 'day' : 'night';
+    cond = bandConditions.bands[tod]?.[bandName] || 'Unknown';
+  }
+
+  let base = conditionScore(cond);
+
+  // Distance modifier: short paths are easier, very long paths harder
+  if (distKm < 500) base = Math.min(95, base + 15);
+  else if (distKm < 2000) base = Math.min(95, base + 5);
+  else if (distKm > 10000) base -= 10;
+  else if (distKm > 15000) base -= 20;
+
+  // Band/frequency modifier for distance suitability
+  // Low bands good for short-medium, high bands good for medium-long (during day)
+  if (freq < 5 && distKm > 5000) base -= 15;
+  if (freq > 20 && distKm < 1000 && !isDay) base -= 20;
+  if (freq >= 10 && freq <= 21 && distKm >= 2000 && distKm <= 12000 && isDay) base += 10;
+
+  // Time-of-day modifier for the specific band
+  if (freq < 8 && isDay) base -= 15; // low bands worse during day
+  if (freq > 15 && !isDay) base -= 15; // high bands worse at night
+
+  const reliability = Math.max(0, Math.min(100, Math.round(base)));
+  const snr = estimateSnr(reliability, distKm);
+
+  return {
+    reliability,
+    condition: conditionLabel(reliability),
+    snr,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Endpoint: GET /api/propagation — predict HF propagation between two points
+// ---------------------------------------------------------------------------
+app.get('/api/propagation', (req, res) => {
+  const fromLat = parseFloat(req.query.fromLat);
+  const fromLng = parseFloat(req.query.fromLng);
+  const toLat = parseFloat(req.query.toLat);
+  const toLng = parseFloat(req.query.toLng);
+  const band = req.query.band || '20m';
+
+  if ([fromLat, fromLng, toLat, toLng].some(isNaN)) {
+    return res.status(400).json({ error: 'Missing or invalid lat/lng parameters' });
+  }
+
+  const distKm = Math.round(haversineDistance(fromLat, fromLng, toLat, toLng));
+  const bearing = Math.round(initialBearing(fromLat, fromLng, toLat, toLng));
+  const fromGrid = coordToGrid(fromLat, fromLng);
+  const toGrid = coordToGrid(toLat, toLng);
+
+  const bandData = cache.bands.data; // may be null if not yet loaded
+  const utcHour = new Date().getUTCHours();
+
+  // Predict the requested band
+  const primary = predictBand(band, bandData, distKm, utcHour);
+
+  // Predict all major bands
+  const allBandNames = ['80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'];
+  const allBands = {};
+  for (const b of allBandNames) {
+    const p = predictBand(b, bandData, distKm, utcHour);
+    allBands[b] = { reliability: p.reliability, condition: p.condition };
+  }
+
+  res.json({
+    from: { lat: fromLat, lng: fromLng, grid: fromGrid },
+    to: { lat: toLat, lng: toLng, grid: toGrid },
+    distance: distKm,
+    bearing,
+    band,
+    prediction: {
+      reliability: primary.reliability,
+      snr: primary.snr,
+      condition: primary.condition,
+      bestTime: estimateBestTime(band, distKm),
+    },
+    allBands,
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Endpoint: /api/status — shows which data sources are loaded and their age
 // ---------------------------------------------------------------------------
 app.get('/api/status', (_req, res) => {
