@@ -432,7 +432,10 @@ function propagateSatellite(tle) {
     const now = new Date();
     const positionAndVelocity = satellite.propagate(satrec, now);
 
-    if (!positionAndVelocity.position) return null;
+    if (!positionAndVelocity.position) {
+      console.warn(`[sat] No position for ${tle.name}`);
+      return null;
+    }
 
     const gmst = satellite.gstime(now);
     const geo = satellite.eciToGeodetic(positionAndVelocity.position, gmst);
@@ -454,23 +457,47 @@ function propagateSatellite(tle) {
       alt: Math.round(alt * 10) / 10,
       velocity: speed ? Math.round(speed * 100) / 100 : null,
     };
-  } catch {
+  } catch (err) {
+    console.warn(`[sat] SGP4 failed for ${tle.name}: ${err.message}`);
     return null;
   }
 }
 
 async function fetchSatelliteData() {
-  // CelesTrak can be slow — use 30s timeout
-  const res = await safeFetch(
+  // Try multiple TLE sources
+  const TLE_URLS = [
     'https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle',
-    30_000
-  );
-  let text;
-  try { text = await res.text(); }
-  catch { throw new Error('Failed to read CelesTrak response'); }
+    'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle',
+  ];
 
-  const allTLEs = parseTLEs(text);
+  let allTLEs = [];
+  for (const url of TLE_URLS) {
+    try {
+      const res = await safeFetch(url, 30_000);
+      const text = await res.text();
+      const tles = parseTLEs(text);
+      console.log(`[sat] Got ${tles.length} TLEs from ${url}`);
+      allTLEs = allTLEs.concat(tles);
+    } catch (err) {
+      console.warn(`[sat] Failed to fetch TLEs from ${url}: ${err.message}`);
+    }
+  }
+
+  if (allTLEs.length === 0) {
+    console.error('[sat] No TLEs from any source');
+    throw new Error('No TLE data available');
+  }
+
+  // Deduplicate by name
+  const seen = new Set();
+  allTLEs = allTLEs.filter(t => {
+    if (seen.has(t.name)) return false;
+    seen.add(t.name);
+    return true;
+  });
+
   const filtered = allTLEs.filter(t => t.name && matchesSatName(t.name));
+  console.log(`[sat] Matched ${filtered.length} tracked sats from ${allTLEs.length} total`);
 
   // Cache ISS TLE separately for pass prediction
   const issTle = allTLEs.find(t => {
@@ -479,12 +506,14 @@ async function fetchSatelliteData() {
   });
   if (issTle) {
     cache._issTle = issTle;
+    console.log(`[sat] ISS TLE cached: ${issTle.name}`);
   }
 
-  // If filtering yields too few, include all amateur sats (capped)
+  // If filtering yields too few, include all sats (capped)
   const tles = filtered.length >= 3 ? filtered : allTLEs.slice(0, 25);
 
   const results = tles.map(propagateSatellite).filter(Boolean);
+  console.log(`[sat] Propagated ${results.length} satellites successfully`);
   return { satellites: results, count: results.length, timestamp: new Date().toISOString() };
 }
 
@@ -550,16 +579,13 @@ async function fetchAuroraMap() {
 }
 
 async function fetchSolarImages() {
-  // These are static URLs that always serve the latest image from NASA SDO
+  // All 5 SDO image types
   const images = [
-    {
-      type: 'AIA193',
-      url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0193.jpg',
-    },
-    {
-      type: 'HMI',
-      url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_HMIIC.jpg',
-    },
+    { type: 'AIA193', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0193.jpg' },
+    { type: 'AIA304', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0304.jpg' },
+    { type: 'AIA171', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_0171.jpg' },
+    { type: 'HMI_MAG', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_HMIBC.jpg' },
+    { type: 'HMI_INT', url: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_1024_HMIIC.jpg' },
   ];
 
   // Verify at least one image is reachable (HEAD request)
@@ -601,9 +627,15 @@ async function pollSource(name, fetchFn) {
   pollLocks[name] = true;
   try {
     const data = await fetchFn();
-    // Don't overwrite good data with empty arrays
-    if (Array.isArray(data) && data.length === 0 && cache[name].data && Array.isArray(cache[name].data) && cache[name].data.length > 0) {
-      console.warn(`[poll] ${name} returned empty, keeping ${cache[name].data.length} cached items`);
+    // Don't overwrite good data with empty results
+    const isEmpty = (Array.isArray(data) && data.length === 0) ||
+      (data && data.satellites && Array.isArray(data.satellites) && data.satellites.length === 0);
+    const hasGoodCache = cache[name].data && (
+      (Array.isArray(cache[name].data) && cache[name].data.length > 0) ||
+      (cache[name].data.satellites && cache[name].data.satellites.length > 0)
+    );
+    if (isEmpty && hasGoodCache) {
+      console.warn(`[poll] ${name} returned empty, keeping cached data`);
     } else {
       setCache(name, data);
       console.log(`[poll] ${name} updated${Array.isArray(data) ? ` (${data.length} items)` : ''}`);

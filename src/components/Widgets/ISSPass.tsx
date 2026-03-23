@@ -9,7 +9,6 @@ interface ISSPassData {
   aosAzimuth?: number;
   losAzimuth?: number;
   countdown?: string;
-  nextPass?: null;
 }
 
 interface ISSPassProps {
@@ -73,7 +72,7 @@ const ISSPass: React.FC<ISSPassProps> = ({ userLat, userLng }) => {
     };
   }, [data]);
 
-  const hasPass = data && data.aosTime && data.nextPass === undefined;
+  const hasPass = data && data.aosTime;
   const durMin = data?.duration ? Math.floor(data.duration / 60) : 0;
 
   return (
