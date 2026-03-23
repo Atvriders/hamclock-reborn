@@ -198,15 +198,14 @@ export function getTerminatorCoords(date: Date): [number, number][] {
  * reversed. This captures the FULL night hemisphere, not just a polar cap.
  */
 export function getNightPolygon(date: Date): [number, number][][] {
-  // Simple approach: for each longitude, find the terminator latitude.
-  // Build two polygons — one for each side of the antimeridian if needed.
-  // The night side is opposite the subsolar point.
-  const subSolarLng = getSubSolarLongitude(date);
-  const numPoints = 180;
+  // Use "world rectangle with hole" technique:
+  // Outer ring = entire world (counterclockwise for Leaflet)
+  // Inner ring = daytime area (clockwise = hole)
+  // This renders as: shaded everywhere EXCEPT the daytime hole
+  const numPoints = 120;
 
-  // Build the terminator line as [lat, lng] points
-  const terminatorTop: [number, number][] = []; // the "north" crossing
-  const terminatorBot: [number, number][] = []; // the "south" crossing
+  const terminatorTop: [number, number][] = [];
+  const terminatorBot: [number, number][] = [];
 
   for (let i = 0; i <= numPoints; i++) {
     const lng = -180 + (i * 360) / numPoints;
@@ -217,39 +216,42 @@ export function getNightPolygon(date: Date): [number, number][][] {
   }
 
   if (terminatorTop.length < 2 || terminatorBot.length < 2) {
-    // Can't build polygon — check if entire world is dark
     const elev = solarElevation(0, 0, date);
     if (elev < 0) return [[[-90,-180],[-90,180],[90,180],[90,-180]]];
     return [[]];
   }
 
-  // The night polygon: go along one terminator branch, then back along the other
-  // Check which side is dark by testing a point between the branches
+  // Determine which side of the terminator is daytime
   const midLng = terminatorTop[Math.floor(terminatorTop.length/2)][1];
-  const midLat = (terminatorTop[Math.floor(terminatorTop.length/2)][0] + terminatorBot[Math.floor(terminatorBot.length/2)][0]) / 2;
+  const midLat = (terminatorTop[Math.floor(terminatorTop.length/2)][0] +
+                  terminatorBot[Math.floor(terminatorBot.length/2)][0]) / 2;
   const midElev = solarElevation(midLat, midLng, date);
 
-  const poly: [number, number][] = [];
+  // Outer ring: entire world (counterclockwise = filled area)
+  const outer: [number, number][] = [
+    [-90, -180], [90, -180], [90, 180], [-90, 180], [-90, -180],
+  ];
 
-  if (midElev < 0) {
-    // Between the branches is dark — polygon goes: top branch W→E, bottom branch E→W
-    poly.push(...terminatorTop);
-    poly.push(...[...terminatorBot].reverse());
+  // Inner ring: daytime area (clockwise = hole cut out)
+  const hole: [number, number][] = [];
+
+  if (midElev >= 0) {
+    // Between branches is day — hole = top branch + bottom branch reversed
+    hole.push(...terminatorTop);
+    hole.push(...[...terminatorBot].reverse());
   } else {
-    // Between the branches is light — night is OUTSIDE
-    // Polygon: top branch W→E, then north pole, then bottom branch E→W, then south pole
-    poly.push(...terminatorTop);
-    // Go to north pole at east end
-    poly.push([90, terminatorTop[terminatorTop.length-1][1]]);
-    poly.push([90, terminatorBot[terminatorBot.length-1][1]]);
-    // Bottom branch reversed
-    poly.push(...[...terminatorBot].reverse());
-    // Go to south pole at west end
-    poly.push([-90, terminatorBot[0][1]]);
-    poly.push([-90, terminatorTop[0][1]]);
+    // Between branches is night — daytime is OUTSIDE branches
+    // Day area: top branch W→E, north pole, bottom branch reversed E→W, south pole
+    hole.push(...terminatorTop);
+    hole.push([90, terminatorTop[terminatorTop.length-1][1]]);
+    hole.push([90, terminatorBot[terminatorBot.length-1][1]]);
+    hole.push(...[...terminatorBot].reverse());
+    hole.push([-90, terminatorBot[0][1]]);
+    hole.push([-90, terminatorTop[0][1]]);
   }
 
-  return [poly];
+  // Return as multi-ring polygon: [outer, hole]
+  return [outer, hole];
 }
 
 /**

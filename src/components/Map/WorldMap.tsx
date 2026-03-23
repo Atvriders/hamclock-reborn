@@ -923,7 +923,7 @@ export default function WorldMap({
           <ImageOverlay
             url={mufUrl}
             bounds={MUF_BOUNDS}
-            opacity={0.35}
+            opacity={0.95}
             interactive={false}
             className="muf-overlay"
           />
