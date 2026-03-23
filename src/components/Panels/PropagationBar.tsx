@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { solarElevation } from '../../utils/solar';
 
 interface PropagationBarProps {
-  grayLineActive?: boolean;
+  userLat?: number;
+  userLng?: number;
   bandsOpen?: string[];
   onBandSelect?: (band: string | null) => void;
 }
@@ -21,11 +23,25 @@ const BAND_FREQ_MAP: Record<string, string> = {
 };
 
 const PropagationBar: React.FC<PropagationBarProps> = ({
-  grayLineActive = false,
+  userLat,
+  userLng,
   bandsOpen = [],
   onBandSelect,
 }) => {
   const [selectedBand, setSelectedBand] = useState<string | null>(null);
+  const [grayLineActive, setGrayLineActive] = useState(false);
+
+  // Check if QTH is in the gray line zone (solar elevation between 0° and -6°)
+  useEffect(() => {
+    const check = () => {
+      if (userLat == null || userLng == null) return;
+      const elev = solarElevation(userLat, userLng, new Date());
+      setGrayLineActive(elev <= 0 && elev >= -6);
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => clearInterval(id);
+  }, [userLat, userLng]);
 
   const handleBandClick = (band: string) => {
     const newBand = selectedBand === band ? null : band;

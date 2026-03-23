@@ -423,7 +423,8 @@ function AppInner() {
           WebkitOverflowScrolling: 'touch',
         }}>
           <PropagationBar
-
+            userLat={userLat}
+            userLng={userLng}
             bandsOpen={bandsOpen}
             onBandSelect={setSelectedBand}
           />
@@ -550,6 +551,8 @@ function AppInner() {
       {/* Row 3: Propagation bar spanning all columns */}
       <div style={{ gridColumn: '1 / -1', background: '#0a0e14' }}>
         <PropagationBar
+          userLat={userLat}
+          userLng={userLng}
           bandsOpen={bandsOpen}
           onBandSelect={setSelectedBand}
         />
