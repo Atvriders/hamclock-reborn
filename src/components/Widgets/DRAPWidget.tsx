@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 const DRAP_URLS = [
+  'https://services.swpc.noaa.gov/images/animations/d-rap/global/latest.png',
   'https://services.swpc.noaa.gov/images/animations/d-rap/global/d-rap/latest.png',
   'https://services.swpc.noaa.gov/images/d-rap-global.png',
 ];
