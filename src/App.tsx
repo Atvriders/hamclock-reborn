@@ -71,7 +71,7 @@ function AppInner() {
       style={{
         display: 'grid',
         gridTemplateRows: '48px 1fr 36px',
-        gridTemplateColumns: '200px 1fr 240px',
+        gridTemplateColumns: '260px 1fr 240px',
         height: '100vh',
         background: '#0a0e14',
         color: '#e0e0e0',

@@ -58,7 +58,7 @@ function getSubSolarLongitude(date: Date): number {
  * Compute the solar elevation at a given lat/lng for a given date.
  * Returns elevation in degrees (positive = above horizon).
  */
-function solarElevation(lat: number, lng: number, date: Date): number {
+export function solarElevation(lat: number, lng: number, date: Date): number {
   const decRad = getSolarDeclination(date) * DEG2RAD;
   const subSolarLng = getSubSolarLongitude(date);
   const haRad = (lng - subSolarLng) * DEG2RAD;

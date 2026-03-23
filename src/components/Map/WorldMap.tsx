@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MapContainer,
   TileLayer,
-  Polygon,
   Polyline,
   Rectangle,
   Marker,
@@ -15,7 +14,7 @@ import {
 import L from 'leaflet';
 import type { DXSpot, SatellitePosition } from '../../types';
 import {
-  getNightPolygon,
+  solarElevation,
   getGrayLinePolylines,
   getMaidenheadGrid,
 } from '../../utils/solar';
@@ -155,16 +154,41 @@ const satIcon = L.divIcon({
 });
 
 // ── Sub-component: auto-update night overlay every 60 s ──────────
+// Uses a grid of small Rectangles instead of a polygon to avoid
+// Leaflet polygon winding/hole rendering bugs.
 function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: boolean }) {
-  const [now, setNow] = useState(() => new Date());
+  const [cells, setCells] = useState<[number, number, number, number][]>([]);
+  const [grayLines, setGrayLines] = useState(() => getGrayLinePolylines(new Date()));
 
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+    const update = () => {
+      const now = new Date();
 
-  const nightCoords = useMemo(() => getNightPolygon(now), [now]);
-  const grayLines = useMemo(() => getGrayLinePolylines(now), [now]);
+      if (showNight) {
+        const nightCells: [number, number, number, number][] = [];
+        const step = 4; // 4-degree grid
+        for (let lat = -90; lat < 90; lat += step) {
+          for (let lng = -180; lng < 180; lng += step) {
+            const elev = solarElevation(lat + step / 2, lng + step / 2, now);
+            if (elev < 0) {
+              nightCells.push([lat, lng, lat + step, lng + step]);
+            }
+          }
+        }
+        setCells(nightCells);
+      } else {
+        setCells([]);
+      }
+
+      if (showGray) {
+        setGrayLines(getGrayLinePolylines(now));
+      }
+    };
+
+    update();
+    const id = setInterval(update, 60_000);
+    return () => clearInterval(id);
+  }, [showNight, showGray]);
 
   // Gray line style: thick semi-transparent amber lines for the terminator
   // and twilight boundaries, creating a visible dawn/dusk band effect
@@ -184,21 +208,21 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
 
   return (
     <>
-      {/* Night side */}
-      {showNight && (
-        <Polygon
-          positions={nightCoords}
+      {/* Night side — grid of small rectangles */}
+      {cells.map(([lat1, lng1, lat2, lng2], i) => (
+        <Rectangle
+          key={`night-${i}`}
+          bounds={[[lat1, lng1], [lat2, lng2]]}
           pathOptions={{
-            color: 'transparent',
             fillColor: '#000820',
             fillOpacity: 0.45,
             stroke: false,
             interactive: false,
           }}
         />
-      )}
+      ))}
 
-      {/* Gray line — terminator lines (elev = 0°) */}
+      {/* Gray line — terminator lines (elev = 0) */}
       {showGray && grayLines.terminatorSouth.length > 1 && (
         <Polyline
           positions={grayLines.terminatorSouth}
@@ -212,7 +236,7 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
         />
       )}
 
-      {/* Gray line — twilight boundary lines (elev = -6°) */}
+      {/* Gray line — twilight boundary lines (elev = -6) */}
       {showGray && grayLines.twilightSouth.length > 1 && (
         <Polyline
           positions={grayLines.twilightSouth}
