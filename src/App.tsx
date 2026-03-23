@@ -138,13 +138,19 @@ function AppInner() {
             Awaiting solar data...
           </div>
         )}
+        {/* Top widget area */}
         <TabbedWidget
           tabs={[
             { label: 'Enlil', content: <EnlilWidget /> },
-            { label: 'SDO Solar', content: <SolarImage /> },
-            { label: 'DRAP', content: <DRAPWidget /> },
-            { label: 'Aurora', content: <AuroraWidget /> },
             { label: 'KC2G', content: <KC2GWidget /> },
+            { label: 'DRAP', content: <DRAPWidget /> },
+          ]}
+        />
+        {/* Bottom widget area */}
+        <TabbedWidget
+          tabs={[
+            { label: 'SDO Solar', content: <SolarImage /> },
+            { label: 'Aurora', content: <AuroraWidget /> },
           ]}
         />
       </div>
