@@ -14,6 +14,7 @@ import SolarImage from './components/Widgets/SolarImage';
 import EnlilWidget from './components/Widgets/EnlilWidget';
 import PropPrediction from './components/Widgets/PropPrediction';
 import ISSPass from './components/Widgets/ISSPass';
+import HRDLogGraph from './components/Widgets/HRDLogGraph';
 
 // ── Error Boundary ──────────────────────────────────────────────────
 
@@ -120,6 +121,9 @@ function AppInner() {
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 200 }}>
           <XRayFlux />
+        </div>
+        <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 180 }}>
+          <HRDLogGraph />
         </div>
         <div style={{ flexShrink: 0, overflow: 'auto', maxHeight: 280 }}>
           <PropPrediction userLat={userLat} userLng={userLng} bands={bands} dxLocation={dxLocation} />
