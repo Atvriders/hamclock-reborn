@@ -24,6 +24,18 @@ const COLORS = {
 
 const ALL_HF_BANDS = ['80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m'];
 
+const BAND_FREQ_MAP: Record<string, number> = {
+  '80m': 3.5,
+  '40m': 7.0,
+  '30m': 10.1,
+  '20m': 14.0,
+  '17m': 18.0,
+  '15m': 21.0,
+  '12m': 24.9,
+  '10m': 28.0,
+  '6m': 50.0,
+};
+
 function conditionColor(cond: string): string {
   switch (cond) {
     case 'Good': return COLORS.green;
@@ -167,7 +179,7 @@ const PropagationBar: React.FC<PropagationBarProps> = ({
                 lineHeight: 'inherit',
               }}
             >
-              {band}
+              {band} <span style={{ opacity: 0.7, fontSize: 9 }}>{BAND_FREQ_MAP[band]}</span>
             </button>
           );
         })}

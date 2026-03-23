@@ -104,6 +104,7 @@ function AppInner() {
         userLng={userLng}
         dxLocation={dxLocation}
         onMapClick={(lat, lng) => setDxLocation({ lat, lng })}
+        selectedBand={selectedBand}
       />
 
       {/* Row 2, Col 3: Right sidebar — Band Conditions + DX Cluster + Satellites */}

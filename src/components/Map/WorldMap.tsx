@@ -73,7 +73,33 @@ interface WorldMapProps {
   userLng?: number;
   dxLocation?: { lat: number; lng: number } | null;
   onMapClick?: (lat: number, lng: number) => void;
+  selectedBand?: string | null;
 }
+
+// ── Band → Frequency mapping ──────────────────────────────────────
+const BAND_FREQ_MAP: Record<string, number> = {
+  '80m': 3.5,
+  '40m': 7.0,
+  '30m': 10.1,
+  '20m': 14.0,
+  '17m': 18.0,
+  '15m': 21.0,
+  '12m': 24.9,
+  '10m': 28.0,
+  '6m': 50.0,
+};
+
+const BAND_COLORS: Record<string, string> = {
+  '80m': '#ff4444',
+  '40m': '#ff8800',
+  '30m': '#ffcc00',
+  '20m': '#88ff00',
+  '17m': '#00ff88',
+  '15m': '#00ddff',
+  '12m': '#0088ff',
+  '10m': '#8844ff',
+  '6m': '#ff44ff',
+};
 
 // ── Layer visibility state ────────────────────────────────────────
 interface LayerState {
@@ -703,10 +729,23 @@ export default function WorldMap({
   userLng,
   dxLocation,
   onMapClick,
+  selectedBand,
 }: WorldMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
   const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
+
+  // Auto-enable MUF layer when a band is selected
+  useEffect(() => {
+    if (selectedBand && !layers.muf) {
+      setLayers((prev) => ({
+        ...prev,
+        muf: true,
+        drap: false,
+        aurora: false,
+      }));
+    }
+  }, [selectedBand]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cache-bust overlay URLs every 10 minutes
   const [cacheBust, setCacheBust] = useState(() => Math.floor(Date.now() / 600_000));
@@ -773,6 +812,92 @@ export default function WorldMap({
         mapStyle={mapStyle}
         onMapStyle={setMapStyle}
       />
+
+      {/* MUF Band Info Overlay — shown when a band is selected and MUF is on */}
+      {selectedBand && layers.muf && BAND_FREQ_MAP[selectedBand] && (
+        <>
+          {/* Selected band info bar at bottom of map */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 8,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+              background: 'rgba(10, 14, 20, 0.88)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              border: `1px solid ${BAND_COLORS[selectedBand] || '#00d4ff'}`,
+              borderRadius: 6,
+              padding: '6px 16px',
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+              fontSize: '11px',
+              color: '#e0e0e0',
+              textAlign: 'center',
+              boxShadow: `0 0 12px rgba(0,0,0,0.5), 0 0 6px ${BAND_COLORS[selectedBand] || '#00d4ff'}44`,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span style={{ color: BAND_COLORS[selectedBand] || '#00d4ff', fontWeight: 700 }}>
+              MUF: {selectedBand} band ({BAND_FREQ_MAP[selectedBand].toFixed(1)} MHz)
+            </span>
+            <span style={{ color: '#8899aa', marginLeft: 12 }}>
+              Areas above the {BAND_FREQ_MAP[selectedBand].toFixed(1)} contour line have propagation on {selectedBand}
+            </span>
+          </div>
+
+          {/* Frequency-to-band legend */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 44,
+              left: 10,
+              zIndex: 1000,
+              background: 'rgba(10, 14, 20, 0.82)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 6,
+              padding: '6px 10px',
+              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+              fontSize: '9px',
+              color: '#aaa',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            }}
+          >
+            <div style={{ fontSize: '8px', color: '#667', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4, fontWeight: 700 }}>
+              MUF Contour Legend
+            </div>
+            {Object.entries(BAND_FREQ_MAP).map(([band, freq]) => (
+              <div
+                key={band}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '1px 0',
+                  opacity: band === selectedBand ? 1 : 0.6,
+                  fontWeight: band === selectedBand ? 700 : 400,
+                }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 2,
+                    background: BAND_COLORS[band],
+                    display: 'inline-block',
+                    flexShrink: 0,
+                    boxShadow: band === selectedBand ? `0 0 4px ${BAND_COLORS[band]}` : 'none',
+                  }}
+                />
+                <span style={{ color: band === selectedBand ? '#fff' : '#aaa', minWidth: 28 }}>{band}</span>
+                <span style={{ color: band === selectedBand ? BAND_COLORS[band] : '#667' }}>{freq.toFixed(1)} MHz</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       <MapContainer
         center={[20, 0]}
