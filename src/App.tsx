@@ -174,8 +174,8 @@ function AppInner() {
           <BandPanel data={bands} />
         </div>
 
-        {/* DX Cluster — scrollable, takes most space */}
-        <div style={{ flex: 1, overflow: 'auto', borderBottom: '1px solid #1a2332', minHeight: 0 }}>
+        {/* DX Cluster — shares space with tabbed section */}
+        <div style={{ flex: 1, overflow: 'auto', borderBottom: '1px solid #1a2332', minHeight: 80, maxHeight: '40%' }}>
           <DXPanel spots={dxSpots} />
         </div>
 
@@ -184,7 +184,7 @@ function AppInner() {
           <ISSPass userLat={userLat} userLng={userLng} />
         </div>
 
-        {/* Tabbed bottom: X-Ray | HRDLog | Propagation */}
+        {/* Tabbed bottom: X-Ray | HRDLog | Propagation — takes remaining space */}
         <TabbedWidget
           tabs={[
             { label: 'X-Ray', content: <XRayFlux /> },
