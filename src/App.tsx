@@ -252,6 +252,7 @@ function MobileHeader({ callsign, onCallsignChange }: { callsign?: string; onCal
 
 function AppInner() {
   const callsign = useAppStore((s) => s.callsign);
+  const gridSquare = useAppStore((s) => s.gridSquare);
   const setCallsign = useAppStore((s) => s.setCallsign);
   const setGridSquare = useAppStore((s) => s.setGridSquare);
   const setUserLocation = useAppStore((s) => s.setUserLocation);
@@ -384,6 +385,7 @@ function AppInner() {
             satellites={satellites}
             userLat={userLat}
             userLng={userLng}
+            gridSquare={gridSquare}
             dxLocation={dxLocation}
             onMapClick={(lat, lng) => setDxLocation({ lat, lng })}
             selectedBand={selectedBand}
@@ -478,6 +480,7 @@ function AppInner() {
           satellites={satellites}
           userLat={userLat}
           userLng={userLng}
+          gridSquare={gridSquare}
           dxLocation={dxLocation}
           onMapClick={(lat, lng) => setDxLocation({ lat, lng })}
           selectedBand={selectedBand}

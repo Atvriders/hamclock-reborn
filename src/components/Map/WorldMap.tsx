@@ -58,6 +58,7 @@ interface WorldMapProps {
   satellites: SatellitePosition[];
   userLat?: number;
   userLng?: number;
+  gridSquare?: string;
   dxLocation?: { lat: number; lng: number } | null;
   onMapClick?: (lat: number, lng: number) => void;
   selectedBand?: string | null;
@@ -1176,6 +1177,7 @@ export default function WorldMap({
   satellites,
   userLat,
   userLng,
+  gridSquare = '',
   dxLocation,
   onMapClick,
   selectedBand,
@@ -1381,7 +1383,7 @@ export default function WorldMap({
                   fontWeight: 700,
                 }}
               >
-                QTH
+                QTH {gridSquare ? gridSquare.slice(0, 4) : ''}
               </span>
             </Tooltip>
           </Marker>
