@@ -256,42 +256,65 @@ async function fetchBandData() {
   };
 }
 
+// Try multiple DX spot sources
+const DX_SOURCES = [
+  'https://www.dxwatch.com/dxsd1/s.php?s=0&r=50',
+  'https://dxcluster.ha8tks.hu/lastspots.php?nr=30',
+  'https://www.hamqth.com/dxc_csv.php?limit=30',
+];
+
+function parseDxLine(line) {
+  // Try various DX cluster formats
+  const m = line.match(/([A-Z0-9/]{3,10})\s+(\d{3,6}\.?\d*)\s+([A-Z0-9/]{3,10})\s+(.*?)\s+(\d{4}Z?)/i);
+  if (!m) return null;
+  const freq = parseFloat(m[2]);
+  if (isNaN(freq) || freq < 1000 || freq > 500000) return null;
+  let band = 'Unknown';
+  if (freq < 4000) band = '80m';
+  else if (freq < 8000) band = '40m';
+  else if (freq < 11000) band = '30m';
+  else if (freq < 15000) band = '20m';
+  else if (freq < 19000) band = '17m';
+  else if (freq < 22000) band = '15m';
+  else if (freq < 26000) band = '12m';
+  else if (freq < 30000) band = '10m';
+  else if (freq < 55000) band = '6m';
+  else band = '2m+';
+  return {
+    id: `${m[1]}-${m[3]}-${freq}`,
+    spotter: m[1],
+    dx: m[3],
+    frequency: freq,
+    band,
+    mode: guessMode(freq, m[4] || ''),
+    comment: (m[4] || '').trim(),
+    time: new Date().toISOString(),
+  };
+}
+
 async function fetchDxSpots() {
-  const text = await safeFetchText('https://www.dxwatch.com/dxsd1/s.php?s=0&r=50');
-
-  const spots = [];
-  const lines = text.split('\n');
-  for (const line of lines) {
-    // DX cluster spot format: "spotter  freq  dx  comment  time"
-    const m = line.match(/([A-Z0-9/]+)\s+(\d{3,6}\.?\d*)\s+([A-Z0-9/]+)\s+(.*?)\s+(\d{4}Z?)/i);
-    if (m) {
-      const freq = parseFloat(m[2]);
-      let band = 'Unknown';
-      if (freq < 4000) band = '80m';
-      else if (freq < 8000) band = '40m';
-      else if (freq < 11000) band = '30m';
-      else if (freq < 15000) band = '20m';
-      else if (freq < 19000) band = '17m';
-      else if (freq < 22000) band = '15m';
-      else if (freq < 26000) band = '12m';
-      else if (freq < 30000) band = '10m';
-      else if (freq < 55000) band = '6m';
-      else band = '2m+';
-
-      spots.push({
-        spotter: m[1],
-        dx: m[3],
-        frequency: freq,
-        band,
-        mode: guessMode(freq, m[4]),
-        comment: m[4].trim(),
-        time: new Date().toISOString(),
-      });
-      if (spots.length >= 20) break;
+  for (const url of DX_SOURCES) {
+    try {
+      const text = await safeFetchText(url);
+      const spots = [];
+      const lines = text.split('\n');
+      for (const line of lines) {
+        const spot = parseDxLine(line);
+        if (spot) {
+          spots.push(spot);
+          if (spots.length >= 30) break;
+        }
+      }
+      if (spots.length > 0) {
+        console.log(`[DX] Got ${spots.length} spots from ${url}`);
+        return spots;
+      }
+    } catch (err) {
+      console.error(`[DX] Failed ${url}:`, err.message);
     }
   }
-
-  return spots;
+  console.log('[DX] All sources failed, returning empty');
+  return [];
 }
 
 function guessMode(freq, comment) {

@@ -87,7 +87,8 @@ export function useDataFetch() {
       timers.current.forEach(clearInterval);
       timers.current = [];
     };
-  }, [refetch, fetchSolar, fetchBands, fetchDxSpots, fetchSatellites]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return { refetch };
 }
