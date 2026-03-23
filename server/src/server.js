@@ -464,10 +464,11 @@ function propagateSatellite(tle) {
 }
 
 async function fetchSatelliteData() {
-  // Try multiple TLE sources
+  // Try multiple TLE sources (CelesTrak primary, AMSAT fallback)
   const TLE_URLS = [
     'https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle',
     'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle',
+    'https://www.amsat.org/tle/current/nasabare.txt',
   ];
 
   let allTLEs = [];
@@ -478,6 +479,8 @@ async function fetchSatelliteData() {
       const tles = parseTLEs(text);
       console.log(`[sat] Got ${tles.length} TLEs from ${url}`);
       allTLEs = allTLEs.concat(tles);
+      // If we have enough from first sources, skip slower ones
+      if (allTLEs.length >= 20) break;
     } catch (err) {
       console.warn(`[sat] Failed to fetch TLEs from ${url}: ${err.message}`);
     }
@@ -500,10 +503,26 @@ async function fetchSatelliteData() {
   console.log(`[sat] Matched ${filtered.length} tracked sats from ${allTLEs.length} total`);
 
   // Cache ISS TLE separately for pass prediction
-  const issTle = allTLEs.find(t => {
+  let issTle = allTLEs.find(t => {
     const upper = t.name.toUpperCase();
     return upper.includes('ISS (ZARYA)') || upper === 'ISS';
   });
+
+  // If ISS not found in TLE files, try dedicated API
+  if (!issTle) {
+    try {
+      const issRes = await safeFetch('https://tle.ivanstanojevic.me/api/tle/25544', 10_000);
+      const issJson = await issRes.json();
+      if (issJson.line1 && issJson.line2) {
+        issTle = { name: issJson.name || 'ISS (ZARYA)', line1: issJson.line1, line2: issJson.line2 };
+        allTLEs.push(issTle);
+        console.log('[sat] ISS TLE from fallback API');
+      }
+    } catch (err) {
+      console.warn(`[sat] ISS TLE fallback failed: ${err.message}`);
+    }
+  }
+
   if (issTle) {
     cache._issTle = issTle;
     console.log(`[sat] ISS TLE cached: ${issTle.name}`);
