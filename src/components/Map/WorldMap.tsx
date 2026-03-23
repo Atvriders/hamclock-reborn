@@ -294,7 +294,7 @@ interface LayerState {
 
 const DEFAULT_LAYERS: LayerState = {
   dayNight: true,
-  grayLine: false,
+  grayLine: true,
   muf: false,
   gridSquares: false,
   prefixes: true,
@@ -387,6 +387,26 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
     dashArray: '6 4',
   };
 
+  // Split a polyline at antimeridian crossings to prevent diagonal artifacts
+  const splitAtAntimeridian = (pts: [number, number][]): [number, number][][] => {
+    if (pts.length < 2) return [pts];
+    const segments: [number, number][][] = [];
+    let current: [number, number][] = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const prevLng = pts[i - 1][1];
+      const currLng = pts[i][1];
+      // If longitude jumps more than 90°, it's an antimeridian crossing
+      if (Math.abs(currLng - prevLng) > 90) {
+        if (current.length > 1) segments.push(current);
+        current = [pts[i]];
+      } else {
+        current.push(pts[i]);
+      }
+    }
+    if (current.length > 1) segments.push(current);
+    return segments;
+  };
+
   return (
     <>
       {/* Night side — grid of small rectangles */}
@@ -403,33 +423,21 @@ function NightOverlay({ showNight, showGray }: { showNight: boolean; showGray: b
         />
       ))}
 
-      {/* Gray line — terminator lines (elev = 0) */}
-      {showGray && grayLines.terminatorSouth.length > 1 && (
-        <Polyline
-          positions={grayLines.terminatorSouth}
-          pathOptions={grayLineTerminatorStyle}
-        />
-      )}
-      {showGray && grayLines.terminatorNorth.length > 1 && (
-        <Polyline
-          positions={grayLines.terminatorNorth}
-          pathOptions={grayLineTerminatorStyle}
-        />
-      )}
+      {/* Gray line — terminator lines (elev = 0), split at antimeridian */}
+      {showGray && splitAtAntimeridian(grayLines.terminatorSouth).map((seg, i) => (
+        <Polyline key={`ts-${i}`} positions={seg} pathOptions={grayLineTerminatorStyle} />
+      ))}
+      {showGray && splitAtAntimeridian(grayLines.terminatorNorth).map((seg, i) => (
+        <Polyline key={`tn-${i}`} positions={seg} pathOptions={grayLineTerminatorStyle} />
+      ))}
 
-      {/* Gray line — twilight boundary lines (elev = -6) */}
-      {showGray && grayLines.twilightSouth.length > 1 && (
-        <Polyline
-          positions={grayLines.twilightSouth}
-          pathOptions={grayLineTwilightStyle}
-        />
-      )}
-      {showGray && grayLines.twilightNorth.length > 1 && (
-        <Polyline
-          positions={grayLines.twilightNorth}
-          pathOptions={grayLineTwilightStyle}
-        />
-      )}
+      {/* Gray line — twilight boundary lines (elev = -6), split at antimeridian */}
+      {showGray && splitAtAntimeridian(grayLines.twilightSouth).map((seg, i) => (
+        <Polyline key={`tws-${i}`} positions={seg} pathOptions={grayLineTwilightStyle} />
+      ))}
+      {showGray && splitAtAntimeridian(grayLines.twilightNorth).map((seg, i) => (
+        <Polyline key={`twn-${i}`} positions={seg} pathOptions={grayLineTwilightStyle} />
+      ))}
     </>
   );
 }
