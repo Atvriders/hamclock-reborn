@@ -28,7 +28,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           tags: ${{ env.REGISTRY }}/atvriders/hamclock-reborn-frontend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -52,7 +52,7 @@ jobs:
           context: ./server
           file: ./server/Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           tags: ${{ env.REGISTRY }}/atvriders/hamclock-reborn-backend:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

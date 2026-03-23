@@ -64,13 +64,16 @@ Modern, open-source, web-based ham radio dashboard featuring solar data, band co
 
 ### Supported Models
 
-| Model | RAM | Install Method | Notes |
-|-------|-----|---------------|-------|
-| Pi 5 | 4-8GB | Docker or Native | Recommended |
-| Pi 4 | 2-8GB | Docker or Native | Full support |
-| Pi 3 B/B+ | 1GB | Native recommended | Add swap |
-| Pi Zero 2 W | 512MB | Native only | Add swap, no Docker |
-| Pi Zero W | 512MB | Native only | ARM6 unofficial Node.js, add swap |
+| Model | RAM | OS | Install Method | Notes |
+|-------|-----|-----|---------------|-------|
+| Pi 5 | 4-8GB | 64-bit | Docker or Native | Recommended |
+| Pi 4 | 2-8GB | 64-bit or 32-bit | Docker or Native | Full support |
+| Pi 3 B/B+ | 1GB | 64-bit or 32-bit | Docker or Native | Add swap recommended |
+| Pi 2 | 1GB | 32-bit | Docker or Native | Add swap recommended |
+| Pi Zero 2 W | 512MB | 64-bit or 32-bit | Native recommended | Add swap, Docker possible but tight |
+| Pi Zero W | 512MB | 32-bit | Native only | ARM6 unofficial Node.js, add swap |
+
+Docker images support amd64, arm64 (64-bit), and arm/v7 (32-bit). All Pi models except Pi Zero W can use Docker.
 
 ---
 
@@ -81,7 +84,8 @@ Works on all Pi models including Pi Zero W.
 #### Step 1: Flash Raspberry Pi OS
 
 Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to flash:
-- **Pi 5 / Pi 4 / Pi 3 / Pi Zero 2 W:** Raspberry Pi OS Lite (64-bit)
+- **Pi 5 / Pi 4 / Pi 3 / Pi Zero 2 W:** Raspberry Pi OS Lite (64-bit recommended, 32-bit also works)
+- **Pi 2:** Raspberry Pi OS Lite (32-bit)
 - **Pi Zero W:** Raspberry Pi OS Lite (32-bit)
 
 In Imager settings, enable SSH and configure WiFi before flashing.
@@ -109,7 +113,7 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 #### Step 4: Install Node.js 20
 
-**Pi 5, Pi 4, Pi 3, Pi Zero 2 W (64-bit OS):**
+**Pi 5, Pi 4, Pi 3, Pi Zero 2 W (64-bit or 32-bit OS):**
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -117,6 +121,8 @@ sudo apt install -y nodejs
 node --version   # Should show v20.x
 npm --version    # Should show 10.x
 ```
+
+> NodeSource supports both armhf (32-bit) and arm64 (64-bit) on Pi 2/3/4/5/Zero 2 W.
 
 **Pi Zero W (32-bit ARM6 — requires unofficial Node.js build):**
 
@@ -202,7 +208,7 @@ pm2 restart all
 
 ### Option 2: Docker Install
 
-Works on Pi 5, Pi 4, and Pi 3. **Not recommended for Pi Zero W / Zero 2 W** (512MB RAM is not enough for Docker).
+Works on Pi 5, Pi 4, Pi 3, and Pi 2 — both 64-bit and 32-bit OS. **Not recommended for Pi Zero W** (512MB RAM is not enough for Docker).
 
 #### Step 1: Flash Raspberry Pi OS
 
@@ -270,7 +276,7 @@ cd hamclock-reborn
 docker compose up -d
 ```
 
-This pulls pre-built multi-arch images (amd64 + arm64) from GitHub Container Registry.
+This pulls pre-built multi-arch images (amd64, arm64, arm/v7) from GitHub Container Registry.
 
 Wait ~30 seconds for the backend to fetch initial data.
 
@@ -346,7 +352,7 @@ All free, no API keys required:
 | Backend | Express.js, Node.js |
 | Maps | Leaflet, react-leaflet, CartoDB/ESRI/OpenTopoMap tiles |
 | Satellites | satellite.js (SGP4 propagation) |
-| Deployment | Docker (multi-arch amd64+arm64) + GitHub Actions to GHCR |
+| Deployment | Docker (multi-arch: amd64, arm64, armv7 32-bit) + GitHub Actions to GHCR |
 
 ## Troubleshooting
 
