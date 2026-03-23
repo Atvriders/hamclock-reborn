@@ -1,5 +1,7 @@
 # HamClock Reborn
 
+**Live demo: [https://hamclock-reborn.org](https://hamclock-reborn.org/)**
+
 Modern web-based replacement for HamClock (ending June 2026). A real-time ham radio dashboard featuring solar data, band conditions, DX cluster, satellite tracking, propagation prediction, and an interactive world map — all running in your browser.
 
 ## Features
