@@ -27,7 +27,7 @@ Modern, open-source, web-based ham radio dashboard featuring solar data, band co
 - Propagation heat map overlay on map (band-specific, grid-cell reliability shading from QTH)
 
 **DX and Satellites:**
-- DX Cluster panel (3 fallback sources: HamQTH, DXWatch, HA8TKS; up to 30 spots; band-colored, mode detection)
+- DX Cluster panel (3 fallback sources: HamQTH, DXWatch, HA8TKS; up to 30 spots; band-colored badges, mode detection, .001 MHz precision)
 - ISS pass prediction (countdown timer, max elevation, AOS/LOS azimuth, duration)
 - Satellite tracking (ISS, AO-91, SO-50, AO-73, PO-101 and more via SGP4 propagation)
 - Multiple TLE sources (CelesTrak, AMSAT, TLE API fallback)
