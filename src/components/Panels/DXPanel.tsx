@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { DXSpot } from '../../types';
 
 interface DXPanelProps {
@@ -46,6 +46,19 @@ const scrollbarCSS = `
 `;
 
 const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
+  const [countdown, setCountdown] = useState(120);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCountdown((prev) => (prev <= 1 ? 120 : prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const minutes = Math.floor(countdown / 60);
+  const seconds = countdown % 60;
+  const countdownLabel = `refresh in ${minutes}:${String(seconds).padStart(2, '0')}`;
+
   const sortedSpots = [...spots].sort((a, b) =>
     new Date(b.time).getTime() - new Date(a.time).getTime()
   );
@@ -87,7 +100,7 @@ const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
             fontWeight: 600,
             letterSpacing: 0.5,
           }}>
-            2m
+            {countdownLabel}
           </span>
           <span style={{
             background: '#1a2332',

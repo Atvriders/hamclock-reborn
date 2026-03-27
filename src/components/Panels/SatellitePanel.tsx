@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { SatellitePosition, SatellitePass } from '../../types';
 
 interface SatelliteInfo {
@@ -44,6 +44,15 @@ function formatAltitude(alt: number): string {
 }
 
 const SatellitePanel: React.FC<SatellitePanelProps> = ({ satellites }) => {
+  const [countdown, setCountdown] = useState(30);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCountdown(prev => (prev <= 1 ? 30 : prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div style={{
       background: COLORS.bgPanel,
@@ -77,7 +86,7 @@ const SatellitePanel: React.FC<SatellitePanelProps> = ({ satellites }) => {
             fontWeight: 'normal',
             letterSpacing: 0,
           }}>
-            30s
+            refresh in 0:{String(countdown).padStart(2, '0')}
           </span>
         </span>
         <span style={{ color: COLORS.muted, fontSize: 9 }}>

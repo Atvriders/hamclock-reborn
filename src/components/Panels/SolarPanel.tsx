@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { SolarData } from '../../types';
 
 interface SolarPanelProps {
@@ -166,6 +166,24 @@ const KpBar: React.FC<{ kp: number }> = ({ kp }) => {
 /* ---------- main component ---------- */
 
 const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
+  const [countdown, setCountdown] = useState(300);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setCountdown(prev => (prev <= 1 ? 300 : prev - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Reset countdown when data refreshes
+  useEffect(() => {
+    setCountdown(300);
+  }, [data.timestamp]);
+
+  const minutes = Math.floor(countdown / 60);
+  const seconds = countdown % 60;
+  const countdownText = `refresh in ${minutes}:${seconds.toString().padStart(2, '0')}`;
+
   const ts = data.timestamp
     ? new Date(data.timestamp).toISOString().slice(11, 16) + 'z'
     : '';
@@ -201,7 +219,7 @@ const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
             marginLeft: 4,
             letterSpacing: 0.5,
           }}>
-            5m
+            {countdownText}
           </span>
         </span>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>

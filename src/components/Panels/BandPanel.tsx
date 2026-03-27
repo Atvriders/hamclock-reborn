@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BandConditions, ConditionLevel, BandName } from '../../types';
 
 interface BandPanelProps {
@@ -56,6 +56,19 @@ const Dot: React.FC<{ cond: ConditionLevel }> = ({ cond }) => (
 const BandPanel: React.FC<BandPanelProps> = ({ data }) => {
   const conditions = data?.conditions ?? {};
 
+  const [countdown, setCountdown] = useState(600);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown((prev) => (prev <= 1 ? 600 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const minutes = Math.floor(countdown / 60);
+  const seconds = countdown % 60;
+  const countdownLabel = `refresh in ${minutes}:${seconds.toString().padStart(2, '0')}`;
+
   return (
     <div style={{
       background: 'transparent',
@@ -83,7 +96,7 @@ const BandPanel: React.FC<BandPanelProps> = ({ data }) => {
           marginLeft: 4,
           letterSpacing: 0.5,
         }}>
-          10m
+          {countdownLabel}
         </span>
       </div>
 
