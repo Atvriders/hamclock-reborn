@@ -12,24 +12,24 @@ Modern, open-source, web-based ham radio dashboard featuring solar data, band co
 - Skippable setup for anonymous use
 
 **Solar and Space Weather:**
-- Solar data panel — SFI, SSN, X-Ray flux class, Kp bar graph, A-Index, Solar Wind speed
-- SDO Solar images — 5 types (AIA 193/304/171, HMI Magnetogram, HMI Intensitygram), circular crop, click to expand, SOHO fallback URLs
-- WSA-Enlil solar wind prediction widget
-- DRAP D-Region Absorption Prediction widget
-- Aurora oval forecast widget (NOAA northern hemisphere image + JSON data)
+- Solar data panel — SFI, SSN, X-Ray flux class, Kp bar graph, A-Index, Solar Wind speed (every 5 min)
+- SDO Solar images — 5 types (AIA 193/304/171, HMI Magnetogram, HMI Intensitygram), circular crop, click to expand, SOHO fallback URLs (every 15 min)
+- WSA-Enlil solar wind prediction widget (every 15 min)
+- DRAP D-Region Absorption Prediction widget (every 15 min)
+- Aurora oval forecast widget (NOAA northern hemisphere image + JSON data) (every 15 min)
 - X-Ray flux plot (NOAA GOES)
 
 **Propagation:**
-- KC2G MUF propagation map widget
-- HF band conditions panel (80m-10m, day/night, Good/Fair/Poor colored dots)
+- KC2G MUF propagation map widget (every 15 min)
+- HF band conditions panel (80m-10m, day/night, Good/Fair/Poor colored dots) (every 10 min)
 - HRDLog propagation graph widget
 - VOACAP-style propagation prediction (DE to DX, per-band reliability table with distance, bearing, grid squares, SNR, best time)
 - Propagation heat map overlay on map (band-specific, grid-cell reliability shading from QTH)
 
 **DX and Satellites:**
-- DX Cluster panel (3 fallback sources: HamQTH, DXWatch, HA8TKS; up to 30 spots; band-colored badges, mode detection)
+- DX Cluster panel (3 fallback sources: HamQTH, DXWatch, HA8TKS; up to 30 spots; band-colored badges, mode detection) (every 2 min)
 - ISS pass prediction (countdown timer, max elevation, AOS/LOS azimuth, duration)
-- Satellite tracking (ISS, AO-91, SO-50, AO-73, PO-101 and more via SGP4 propagation)
+- Satellite tracking (ISS, AO-91, SO-50, AO-73, PO-101 and more via SGP4 propagation) (positions every 30s, TLEs every 5 min)
 - Multiple TLE sources (CelesTrak, AMSAT, TLE API fallback)
 
 **World Map (Leaflet):**
@@ -51,8 +51,9 @@ Modern, open-source, web-based ham radio dashboard featuring solar data, band co
 - ErrorBoundary for crash protection
 
 **General:**
-- UTC + local clocks with callsign display in header
-- Gray line status indicator — shows ACTIVE when your QTH is in the twilight zone (solar elevation 0° to -6°) for enhanced gray line propagation
+- UTC + local clocks with callsign display in header (updates every 1s)
+- Data flow status indicator in header (checks every 5s — green when data is fresh, red when stale)
+- Gray line status indicator — shows ACTIVE when your QTH is in the twilight zone (solar elevation 0° to -6°), updates every 30s
 - Bottom band bar (80m-6m with center frequencies, clickable band selection)
 - Classic ham radio aesthetic (green on black, monospace numbers)
 - All data from free public APIs — no API keys needed
