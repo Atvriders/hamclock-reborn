@@ -34,8 +34,8 @@ function formatSpotTime(isoStr: string): string {
 }
 
 function formatFrequency(khz: number): string {
-  if (khz >= 1000) return (khz / 1000).toFixed(1);
-  return khz.toFixed(1);
+  if (khz >= 1000) return (khz / 1000).toFixed(1) + ' MHz';
+  return khz.toFixed(1) + ' kHz';
 }
 
 const scrollbarCSS = `
@@ -137,7 +137,7 @@ const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
                   color: getBandColor(spot.band),
                   fontSize: 10,
                   fontWeight: 600,
-                  width: 42,
+                  width: 58,
                   textAlign: 'right',
                   flexShrink: 0,
                 }}>
