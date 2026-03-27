@@ -144,12 +144,29 @@ const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
                   {formatFrequency(spot.frequency)}
                 </span>
 
+                {/* Band */}
+                <span style={{
+                  fontSize: 7,
+                  fontWeight: 700,
+                  color: getBandColor(spot.band),
+                  background: `${getBandColor(spot.band)}18`,
+                  padding: '1px 4px',
+                  borderRadius: 6,
+                  letterSpacing: 0.3,
+                  flexShrink: 0,
+                  lineHeight: '12px',
+                  minWidth: 22,
+                  textAlign: 'center',
+                }}>
+                  {spot.band}
+                </span>
+
                 {/* DX Callsign */}
                 <span style={{
                   color: '#ffffff',
                   fontSize: 10,
                   fontWeight: 700,
-                  width: 62,
+                  width: 58,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
