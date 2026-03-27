@@ -194,6 +194,15 @@ const SolarPanel: React.FC<SolarPanelProps> = ({ data }) => {
           fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
         }}>
           SOLAR FLUX
+          <span style={{
+            fontSize: 7,
+            fontWeight: 400,
+            color: C.textMuted,
+            marginLeft: 4,
+            letterSpacing: 0.5,
+          }}>
+            5m
+          </span>
         </span>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
           <span style={{

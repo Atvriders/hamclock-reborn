@@ -76,6 +76,15 @@ const BandPanel: React.FC<BandPanelProps> = ({ data }) => {
         fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       }}>
         HF BAND CONDITIONS
+        <span style={{
+          fontSize: 7,
+          fontWeight: 400,
+          color: C.textMuted,
+          marginLeft: 4,
+          letterSpacing: 0.5,
+        }}>
+          10m
+        </span>
       </div>
 
       {/* Table header */}

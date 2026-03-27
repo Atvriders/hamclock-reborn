@@ -82,6 +82,14 @@ const DXPanel: React.FC<DXPanelProps> = ({ spots, onSpotClick }) => {
             DX Cluster
           </span>
           <span style={{
+            color: '#4a5568',
+            fontSize: 8,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+          }}>
+            2m
+          </span>
+          <span style={{
             background: '#1a2332',
             color: '#8899aa',
             fontSize: 9,

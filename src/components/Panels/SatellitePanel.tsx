@@ -62,13 +62,23 @@ const SatellitePanel: React.FC<SatellitePanelProps> = ({ satellites }) => {
         paddingBottom: 6,
         borderBottom: `1px solid ${COLORS.border}`,
       }}>
-        <span style={{
-          color: COLORS.primary,
-          fontSize: 11,
-          fontWeight: 'bold',
-          letterSpacing: 1.5,
-        }}>
-          SATELLITES
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            color: COLORS.primary,
+            fontSize: 11,
+            fontWeight: 'bold',
+            letterSpacing: 1.5,
+          }}>
+            SATELLITES
+          </span>
+          <span style={{
+            color: COLORS.muted,
+            fontSize: 9,
+            fontWeight: 'normal',
+            letterSpacing: 0,
+          }}>
+            30s
+          </span>
         </span>
         <span style={{ color: COLORS.muted, fontSize: 9 }}>
           {satellites.filter(s => s.isVisible).length} visible
