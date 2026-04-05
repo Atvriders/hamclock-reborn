@@ -83,10 +83,15 @@ The Pi 1 (700MHz ARMv6, 512MB RAM) cannot run the full version. A dedicated ligh
 
 **[HamClock Pi1 Lite](https://github.com/Atvriders/hamclock-pi1)** — Same data, zero dependencies.
 
+**One-line install** (no GitHub needed):
+```bash
+curl -sL https://hamclock-reborn.org/downloads/pi1-install.sh | bash
+```
+
 - Pure Python 3 + single HTML file (no React, no Node.js, no npm, no build step)
 - Shows: Solar conditions (SFI, Kp, SSN, A-Index, X-Ray, Solar Wind), HF band conditions (80m–10m), DX Cluster (30 live spots), UTC/local clocks
 - ~15MB memory footprint (vs 200MB+ for full version)
-- Install: `git clone`, `sudo ./install.sh`, open browser to `http://pi-ip:8080`
+- Kiosk mode: boots directly into fullscreen dashboard on the Pi's monitor
 
 ---
 
