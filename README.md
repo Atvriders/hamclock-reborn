@@ -73,8 +73,20 @@ Modern, open-source, web-based ham radio dashboard featuring solar data, band co
 | Pi 2 | 1GB | 32-bit | Docker or Native | Add swap recommended |
 | Pi Zero 2 W | 512MB | 64-bit or 32-bit | Native recommended | Add swap, Docker possible but tight |
 | Pi Zero W | 512MB | 32-bit | Native only | ARM6 unofficial Node.js, add swap |
+| **Pi 1** | 512MB | 32-bit | **[HamClock Pi1 Lite](https://github.com/Atvriders/hamclock-pi1)** | Lightweight version — see below |
 
-Docker images support amd64, arm64 (64-bit), and arm/v7 (32-bit). All Pi models except Pi Zero W can use Docker.
+Docker images support amd64, arm64 (64-bit), and arm/v7 (32-bit). All Pi models except Pi Zero W and Pi 1 can use Docker.
+
+### Raspberry Pi 1 — Lightweight Version
+
+The Pi 1 (700MHz ARMv6, 512MB RAM) cannot run the full version. A dedicated lightweight build is available:
+
+**[HamClock Pi1 Lite](https://github.com/Atvriders/hamclock-pi1)** — Same data, zero dependencies.
+
+- Pure Python 3 + single HTML file (no React, no Node.js, no npm, no build step)
+- Shows: Solar conditions (SFI, Kp, SSN, A-Index, X-Ray, Solar Wind), HF band conditions (80m–10m), DX Cluster (30 live spots), UTC/local clocks
+- ~15MB memory footprint (vs 200MB+ for full version)
+- Install: `git clone`, `sudo ./install.sh`, open browser to `http://pi-ip:8080`
 
 ---
 
