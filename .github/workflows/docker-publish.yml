@@ -3,9 +3,9 @@ name: Build and Push Docker Images
 # Built on the Gitea act_runner (GitHub Actions is disabled for this account)
 # and pushed to GitHub Container Registry (ghcr.io).
 #
-# NOTE: this first revision builds linux/amd64 only — a deliberate probe to
-# confirm the runner has Docker and that the ghcr.io push works. Once the
-# pipeline is green it is expanded to multi-arch (arm64 + armv7) for the Pi.
+# Multi-arch: linux/amd64 (x86 servers / docker-compose) plus linux/arm64 and
+# linux/arm/v7 for Raspberry Pi 2 and newer. The arm images are cross-built
+# under QEMU emulation, so a cold run can take a while.
 
 on:
   push:
@@ -28,6 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # QEMU binfmt handlers so the runner can cross-build arm images.
+      - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
 
       # Authenticate to ghcr.io with a GitHub PAT (write:packages) stored as a
@@ -44,5 +47,5 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           tags: ghcr.io/atvriders/hamclock-reborn-${{ matrix.name }}:latest
