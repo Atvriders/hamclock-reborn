@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   frontend:
-    image: ghcr.io/atvriders/hamclock-reborn-frontend:latest
+    image: git.waterburp.com/atvriders/hamclock-reborn-frontend:latest
     container_name: hamclock-frontend
     ports:
       - "3012:3012"
@@ -13,7 +13,7 @@ services:
       - hamclock
 
   backend:
-    image: ghcr.io/atvriders/hamclock-reborn-backend:latest
+    image: git.waterburp.com/atvriders/hamclock-reborn-backend:latest
     container_name: hamclock-backend
     ports:
       - "3013:3013"
