@@ -15,7 +15,7 @@
 main() {
 set -euo pipefail
 
-KIOSK_MODE="browser"
+KIOSK_MODE="pygame"   # default — native client, no browser, <=200ms p99 clicks
 for arg in "$@"; do
     case "$arg" in
         --pygame)  KIOSK_MODE="pygame" ;;
@@ -4131,6 +4131,55 @@ done
 KIOSKEOF
 fi
 sudo chmod +x /opt/hamclock-lite/kiosk.sh
+
+# --- Phase 5: pygame-mode reinstall detection -----------------------------
+if [ "$KIOSK_MODE" = "pygame" ]; then
+    SETTINGS_FILE="/etc/hamclock-lite/settings.json"
+    SERVICE_UNIT="/etc/systemd/system/hamclock-kiosk.service"
+    if [ -f "$SETTINGS_FILE" ]; then
+        REINSTALL_DECISION="keep-settings"
+    elif [ -f "$SERVICE_UNIT" ]; then
+        REINSTALL_DECISION="seed-defaults"
+    else
+        REINSTALL_DECISION="fresh-install"
+    fi
+    echo "Pygame reinstall decision: $REINSTALL_DECISION"
+
+    # Detect a pre-existing BROWSER-mode kiosk service so we can warn that
+    # localStorage doesn't migrate. We look for the browser-mode ExecStart
+    # signature in the existing unit file.
+    PRIOR_MODE_HINT=""
+    if [ -f "$SERVICE_UNIT" ]; then
+        if grep -q "surf\|midori\|chromium" "$SERVICE_UNIT" 2>/dev/null; then
+            PRIOR_MODE_HINT="browser"
+        elif grep -q "hamclock_pygame.py" "$SERVICE_UNIT" 2>/dev/null; then
+            PRIOR_MODE_HINT="pygame"
+        fi
+    fi
+
+    if [ "$REINSTALL_DECISION" != "fresh-install" ] \
+        && [ "$PRIOR_MODE_HINT" = "browser" ]; then
+        echo ""
+        echo "NOTICE: Browser localStorage (theme, callsign) is not migrated to pygame mode."
+        echo "Run 'sudo hamclock-setup' to re-enter your settings."
+        echo ""
+    fi
+
+    if [ "$REINSTALL_DECISION" = "seed-defaults" ]; then
+        sudo install -d -o "$SERVICE_USER" -g "$SERVICE_USER" -m 0755 /etc/hamclock-lite
+        sudo -u "$SERVICE_USER" tee "$SETTINGS_FILE" >/dev/null <<'JSON'
+{
+  "callsign": "",
+  "timezone": "UTC",
+  "theme": "kstate",
+  "ntp": ""
+}
+JSON
+        sudo chmod 0644 "$SETTINGS_FILE"
+        echo "Run 'sudo hamclock-setup' to personalize your settings."
+    fi
+fi
+# --- end Phase 5 reinstall detection -------------------------------------
 
 # ── Step 10: Create hamclock-kiosk systemd service (mode-specific) ──
 if [ "$KIOSK_MODE" = "pygame" ]; then
