@@ -111,7 +111,7 @@ PYINLINE
     TIMES=()
     for i in 1 2 3 4 5; do
         start=$(date +%s.%N)
-        python3 -c "import cairosvg; cairosvg.svg2png(url='https://prop.kc2g.com/renders/current/mufd-normal-now.svg', output_width=720, write_to='/tmp/m_$i.png')"
+        python3 -c "import cairosvg; cairosvg.svg2png(url='https://prop.kc2g.com/renders/current/mufd-normal-now.svg', output_width=360, write_to='/tmp/m_$i.png')"
         end=$(date +%s.%N)
         elapsed=$(echo "$end - $start" | bc -l)
         TIMES+=("$elapsed")
@@ -267,7 +267,7 @@ def _rasterize_muf(svg_bytes):
              'python3', '-c',
              'import sys, cairosvg; cairosvg.svg2png('
              'bytestring=sys.stdin.buffer.read(), '
-             'output_width=720, write_to=sys.stdout.buffer)'],
+             'output_width=360, write_to=sys.stdout.buffer)'],
             input=svg_bytes,
             capture_output=True,
             timeout=PHASE2_TIMEOUT_S,
@@ -277,6 +277,13 @@ def _rasterize_muf(svg_bytes):
     except (subprocess.SubprocessError, FileNotFoundError) as e:
         print('[muf] rasterize failed: %s' % e, file=sys.stderr)
         return None
+
+
+def _etag_for(key_updated):
+    """Tier 2c: format an ETag from a CACHE['..._updated'] epoch timestamp."""
+    ts = CACHE.get(key_updated) or 0
+    return '"%.3f"' % float(ts)
+
 
 # Solar image proxy (NASA SDO)
 SDO_URL = 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_256_HMIIC.jpg'
@@ -725,11 +732,37 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == '/api/solar':
-            self.send_json(CACHE.get('solar') or {})
+            # Tier 2c perf: 304 conditional GET — client skips json.loads
+            # ~80% of polls (5 min upstream vs 60 s client cadence).
+            etag = _etag_for('solar_updated')
+            inm = self.headers.get('If-None-Match', '')
+            if inm == etag and etag != '"0.000"':
+                self.send_response(304)
+                self.send_header('ETag', etag)
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                return
+            self.send_json_with_etag(CACHE.get('solar') or {}, etag)
         elif path == '/api/bands':
-            self.send_json(CACHE.get('bands') or {})
+            etag = _etag_for('bands_updated')
+            inm = self.headers.get('If-None-Match', '')
+            if inm == etag and etag != '"0.000"':
+                self.send_response(304)
+                self.send_header('ETag', etag)
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                return
+            self.send_json_with_etag(CACHE.get('bands') or {}, etag)
         elif path == '/api/dxspots':
-            self.send_json(CACHE.get('dxspots') or [])
+            etag = _etag_for('dx_updated')
+            inm = self.headers.get('If-None-Match', '')
+            if inm == etag and etag != '"0.000"':
+                self.send_response(304)
+                self.send_header('ETag', etag)
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                return
+            self.send_json_with_etag(CACHE.get('dxspots') or [], etag)
         elif path == '/api/solar-image':
             # Fetch/cache SDO solar image (15 min cache)
             now = time.time()
@@ -806,6 +839,22 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', len(body))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
+    def send_json_with_etag(self, data, etag):
+        """Tier 2c: send_json + ETag header for /api/{solar,bands,dxspots}."""
+        if isinstance(data, (bytes, bytearray)):
+            body = data
+        else:
+            body = json.dumps(data).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', len(body))
+        self.send_header('ETag', etag)
+        self.send_header('Cache-Control', 'no-store')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         if self.command != 'HEAD':
@@ -4061,6 +4110,15 @@ HCTKEOF
 # ── Step 5: Create hamclock-lite systemd service ────────────────────
 echo "Creating HamClock server service..."
 if ! systemctl is-enabled hamclock-lite &>/dev/null; then
+    # Tier 1c: pygame-mode only — reduce glibc arena fragmentation, strip
+    # asserts/docstrings, and pre-compile .pyc once at service start so
+    # subsequent imports skip the bytecode compile path on a 512 MB Pi.
+    LITE_PYGAME_ENV=""
+    LITE_PYGAME_PRE=""
+    if [ "$KIOSK_MODE" = "pygame" ]; then
+        LITE_PYGAME_ENV="Environment=MALLOC_ARENA_MAX=1 PYTHONOPTIMIZE=1 PYTHONDONTWRITEBYTECODE=1"
+        LITE_PYGAME_PRE="ExecStartPre=/usr/bin/python3 -O -m compileall -q /opt/hamclock-lite"
+    fi
     sudo tee /etc/systemd/system/hamclock-lite.service > /dev/null <<EOF
 [Unit]
 Description=HamClock Lite Server
@@ -4071,6 +4129,8 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$INSTALL_DIR
+$LITE_PYGAME_ENV
+$LITE_PYGAME_PRE
 ExecStart=/usr/bin/python3 $INSTALL_DIR/server.py
 Restart=always
 RestartSec=5
@@ -4098,6 +4158,66 @@ if [ "$KIOSK_MODE" = "pygame" ]; then
     # Phase 2: python3-cairosvg for MUF SVG->PNG rasterize; cpulimit caps
     # the subprocess to 50% of one core so the render loop keeps its budget.
     sudo apt install -y python3-pygame python3-cairosvg cpulimit
+
+    # Tier 1c: free RAM + boot time on a 512 MB Pi by masking kiosk-irrelevant daemons.
+    # All four are non-essential for a wired-Ethernet HDMI kiosk.
+    sudo systemctl mask bluetooth hciuart ModemManager avahi-daemon triggerhappy 2>/dev/null || true
+
+    # Tier 1c: config.txt trims — free RAM, disable kiosk-irrelevant subsystems.
+    BOOT_CFG="/boot/firmware/config.txt"
+    [ -f "$BOOT_CFG" ] || BOOT_CFG="/boot/config.txt"
+    if [ -f "$BOOT_CFG" ]; then
+        add_cfg() {
+            # add_cfg <key>=<value>
+            local kv="$1" key="${1%%=*}"
+            if ! grep -qE "^${key}=" "$BOOT_CFG"; then
+                echo "$kv" | sudo tee -a "$BOOT_CFG" > /dev/null
+            fi
+        }
+        add_cfg "gpu_mem=16"               # min split; pygame is software, frees ~48 MB
+        add_cfg "dtparam=audio=off"        # no audio on a kiosk
+        add_cfg "camera_auto_detect=0"     # no camera probe
+        add_cfg "display_auto_detect=0"    # no extra display probe
+        add_cfg "disable_overscan=1"       # full HDMI canvas
+        add_cfg "hdmi_blanking=0"          # never DPMS the display
+        add_cfg "framebuffer_width=720"    # Tier 2a: half-res framebuffer, HVS upscales free
+        add_cfg "framebuffer_height=450"   # Tier 2a: pygame renders at 720x450; HDMI scanout stays 1440x900
+    fi
+
+    # Tier 1c: quieter boot, no fsck at boot, no cursor on the TTY before kiosk paints.
+    CMDLINE="/boot/firmware/cmdline.txt"
+    [ -f "$CMDLINE" ] || CMDLINE="/boot/cmdline.txt"
+    if [ -f "$CMDLINE" ]; then
+        for tok in "quiet" "loglevel=3" "logo.nologo" "vt.global_cursor_default=0" "fsck.mode=skip"; do
+            grep -q "$tok" "$CMDLINE" || sudo sed -i "s|\$| $tok|" "$CMDLINE"
+        done
+    fi
+
+    # Tier 1c: journald in RAM + capped to keep SD writes low.
+    sudo mkdir -p /etc/systemd/journald.conf.d
+    sudo tee /etc/systemd/journald.conf.d/hamclock-kiosk.conf > /dev/null <<'JEOF'
+[Journal]
+Storage=volatile
+RuntimeMaxUse=32M
+RuntimeMaxFileSize=8M
+JEOF
+    sudo systemctl restart systemd-journald 2>/dev/null || true
+
+    # Tier 1c: ext4 mount opts — fewer SD writes on read-heavy workload.
+    if grep -qE '^[^#].* / +ext4 +[^ ]+ +' /etc/fstab; then
+        if ! grep -qE '^[^#].* / +ext4 +[^ ]*noatime' /etc/fstab; then
+            sudo sed -i -E 's|^([^#].* / +ext4 +)([^ ]+)( +)|\1\2,noatime,commit=60\3|' /etc/fstab
+        fi
+    fi
+
+    # Tier 1c: low-pressure swap + low dirty thresholds for a 512 MB Pi.
+    sudo tee /etc/sysctl.d/99-hamclock-kiosk.conf > /dev/null <<'SEOF'
+vm.swappiness=10
+vm.vfs_cache_pressure=50
+vm.dirty_background_ratio=5
+vm.dirty_ratio=10
+SEOF
+    sudo sysctl --system > /dev/null 2>&1 || true
 elif [ "$KIOSK_MODE" = "tkinter" ]; then
     sudo apt install -y python3-tk python3-pil python3-pil.imagetk
 fi
