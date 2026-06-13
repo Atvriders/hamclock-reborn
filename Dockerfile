@@ -1,7 +1,13 @@
 FROM node:20.11-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+# Harden npm registry fetches against transient ECONNRESETs during QEMU-
+# emulated arm builds (the cross-build is slow enough that npmjs.org sometimes
+# drops the connection partway through).
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm ci --prefer-offline --no-audit
 COPY . .
 RUN npm run build
 
