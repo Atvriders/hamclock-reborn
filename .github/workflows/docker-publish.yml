@@ -1,8 +1,11 @@
 name: Build and Push Docker Images
 
-# Built on the Gitea act_runner and pushed to the Gitea container registry
-# at git.waterburp.com. GitHub Actions is disabled for this account, and the
-# images are hosted on Gitea (not ghcr.io), so docker-compose pulls from there.
+# CI-aware: same workflow runs on both Gitea Actions (act_runner) and GitHub
+# Actions. The registry it pushes to depends on which CI is running:
+#   - Gitea  → git.waterburp.com  (the canonical target — docker-compose pulls here)
+#   - GitHub → ghcr.io            (mirror; available as a backup pull source)
+# Both CIs use a secret named REGISTRY_TOKEN — on Gitea it's a Gitea PAT, on
+# GitHub it's a GitHub PAT with write:packages scope.
 #
 # Multi-arch: linux/amd64 (x86 / docker-compose on a PC) plus linux/arm64 and
 # linux/arm/v7 for Raspberry Pi 2 and newer. The arm layers cross-build under
@@ -26,6 +29,9 @@ jobs:
           - name: backend
             context: ./server
             dockerfile: ./server/Dockerfile
+    env:
+      REGISTRY: ${{ github.server_url == 'https://github.com' && 'ghcr.io' || 'git.waterburp.com' }}
+      IMAGE_OWNER: atvriders
     steps:
       - uses: actions/checkout@v4
 
@@ -34,12 +40,12 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # Log in to the Gitea container registry. The auto-provisioned Gitea run
-      # token (secrets.GITHUB_TOKEN) lacks package-write scope, so use a Gitea
-      # PAT stored as the REGISTRY_TOKEN secret instead.
+      # Log in to whichever registry this CI publishes to.
+      # On Gitea: git.waterburp.com (REGISTRY_TOKEN = Gitea PAT).
+      # On GitHub: ghcr.io (REGISTRY_TOKEN = GitHub PAT with write:packages).
       - uses: docker/login-action@v3
         with:
-          registry: git.waterburp.com
+          registry: ${{ env.REGISTRY }}
           username: Atvriders
           password: ${{ secrets.REGISTRY_TOKEN }}
 
@@ -49,4 +55,4 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64,linux/arm64,linux/arm/v7
-          tags: git.waterburp.com/atvriders/hamclock-reborn-${{ matrix.name }}:latest
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/hamclock-reborn-${{ matrix.name }}:latest
