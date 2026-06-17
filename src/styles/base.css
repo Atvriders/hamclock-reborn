@@ -1,0 +1,164 @@
+/* Operator's Bench — base reset, font wiring, signature classes.
+ * Tokens are defined in tokens.css and imported before this file in main.tsx.
+ */
+
+/* -------- Fonts (shipped via @fontsource, no CDN) -------- */
+/* Atkinson Hyperlegible only publishes 400 and 700 (Braille Institute master).
+ * We use weight 500 in the design system semantically; map to 400 for now. */
+@import '@fontsource/atkinson-hyperlegible/400.css';
+@import '@fontsource/atkinson-hyperlegible/700.css';
+@import '@fontsource/antonio/600.css';
+
+/* -------- Minimal modern reset -------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+img, picture, svg, video, canvas {
+  display: block;
+  max-width: 100%;
+}
+
+input, button, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+ul, ol {
+  list-style: none;
+}
+
+h1, h2, h3, h4, h5, h6, p {
+  font-weight: inherit;
+  font-size: inherit;
+}
+
+/* -------- Body default — Atkinson Hyperlegible, warm anthracite bg -------- */
+body {
+  background: var(--ob-bg);
+  color: var(--ob-fg);
+  font-family: 'Atkinson Hyperlegible', system-ui, sans-serif;
+  font-size: var(--ob-text-base);
+  font-feature-settings: 'tnum' 1, 'kern' 1, 'liga' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+}
+
+/* -------- .ob-display — Antonio for panel headings, callsign, readouts -------- */
+.ob-display {
+  font-family: 'Antonio', 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* -------- .ob-panel — the chassis tile (brushed aluminum) -------- */
+.ob-panel {
+  background: var(--ob-panel);
+  border: 1px solid var(--ob-grid-line);
+  box-shadow:
+    inset 0 1px 0 var(--ob-chamfer-hi),   /* top highlight */
+    inset 1px 0 0 var(--ob-chamfer-hi),   /* left highlight */
+    inset 0 -1px 0 var(--ob-chamfer-lo),  /* bottom shadow */
+    inset -1px 0 0 var(--ob-chamfer-lo);  /* right shadow */
+  position: relative;
+}
+
+/* faint engraved 8-unit grid underlay */
+.ob-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right,  var(--ob-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ob-grid-line) 1px, transparent 1px);
+  background-size: 8px 8px;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* -------- .ob-panel--crosshair — 12px L-marks at each corner, amber -------- */
+.ob-panel--crosshair::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  pointer-events: none;
+  background:
+    linear-gradient(to right,  var(--ob-amber) 12px, transparent 12px) top left     / 100% 1px no-repeat,
+    linear-gradient(to bottom, var(--ob-amber) 12px, transparent 12px) top left     / 1px 100% no-repeat,
+    linear-gradient(to left,   var(--ob-amber) 12px, transparent 12px) top right    / 100% 1px no-repeat,
+    linear-gradient(to bottom, var(--ob-amber) 12px, transparent 12px) top right    / 1px 100% no-repeat,
+    linear-gradient(to right,  var(--ob-amber) 12px, transparent 12px) bottom left  / 100% 1px no-repeat,
+    linear-gradient(to top,    var(--ob-amber) 12px, transparent 12px) bottom left  / 1px 100% no-repeat,
+    linear-gradient(to left,   var(--ob-amber) 12px, transparent 12px) bottom right / 100% 1px no-repeat,
+    linear-gradient(to top,    var(--ob-amber) 12px, transparent 12px) bottom right / 1px 100% no-repeat;
+  opacity: 0.45;
+}
+
+/* -------- .ob-well — recessed instrument well, sunk into the panel -------- */
+.ob-well {
+  background: var(--ob-panel-recess);
+  border: 1px solid rgba(0,0,0,0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(0,0,0,0.6),
+    inset 0 -1px 0 rgba(255,255,255,0.04);
+  border-radius: 2px;
+}
+
+/* -------- .ob-section-label — screen-printed etched legend (Antonio small caps) -------- */
+.ob-section-label {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-sm);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ob-muted);
+}
+
+/* -------- .ob-data — Atkinson Hyperlegible tabular numeric -------- */
+.ob-data {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  color: var(--ob-fg);
+}
+
+/* -------- .ob-amber-live — single accent color, ONLY for live/active values -------- */
+.ob-amber-live {
+  color: var(--ob-amber);
+}
+
+/* -------- Allow selection on data values (DX list etc) — opt-in -------- */
+.ob-selectable {
+  user-select: text;
+}
+
+/* -------- Reduced motion: kill any blink/transition globally -------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,39 @@
+/* Operator's Bench — design tokens
+ * Warm dark slate + single phosphor-amber accent.
+ * All tokens live on :root so they cascade everywhere.
+ */
+:root {
+  /* -------- Color tokens — warm slate + single phosphor amber -------- */
+  --ob-bg:            #1A1714;   /* warm anthracite, not pure black */
+  --ob-panel:         #252220;   /* brushed-aluminum mid-tone */
+  --ob-panel-recess:  #34302C;   /* recessed inset (display wells) */
+  --ob-fg:            #E8E2D6;   /* bone white, screen-print ink */
+  --ob-muted:         #8A8378;   /* etched legend gray */
+  --ob-amber:         #C6A24A;   /* THE accent — Nixie/Burroughs amber, used SPARINGLY */
+  --ob-good:          #4FB3D9;   /* instrument blue, CVD-safe */
+  --ob-fair:          #E89B3C;   /* warning amber, distinct from --ob-amber */
+  --ob-poor:          #D85E7A;   /* magenta — never red/green pair */
+  --ob-grid-line:     rgba(46,42,38,0.08);  /* engraved 8-unit grid */
+  --ob-chamfer-hi:    rgba(255,255,255,0.04);
+  --ob-chamfer-lo:    rgba(0,0,0,0.35);
+
+  /* -------- Typography scale — fluid clamp() for 1366→3440 viewports -------- */
+  --ob-text-xs:   clamp(13px, 0.85vw, 16px);   /* small caption only */
+  --ob-text-sm:   clamp(14px, 0.95vw, 17px);   /* secondary label */
+  --ob-text-base: clamp(16px, 1.05vw, 19px);   /* body floor */
+  --ob-text-md:   clamp(18px, 1.2vw, 22px);    /* data row default */
+  --ob-text-lg:   clamp(22px, 1.5vw, 28px);    /* panel header */
+  --ob-text-xl:   clamp(28px, 2.0vw, 40px);    /* hero readout */
+  --ob-text-2xl:  clamp(40px, 3.2vw, 64px);    /* callsign / UTC seconds */
+  --ob-text-3xl:  clamp(56px, 4.5vw, 92px);    /* nothing should be bigger than this */
+
+  /* -------- Spacing scale -------- */
+  --ob-space-1:   4px;
+  --ob-space-2:   8px;
+  --ob-space-3:   12px;
+  --ob-space-4:   16px;
+  --ob-space-5:   24px;
+  --ob-space-6:   32px;
+  --ob-space-7:   48px;
+  --ob-space-8:   64px;
+}
