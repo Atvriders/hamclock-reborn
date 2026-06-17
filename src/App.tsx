@@ -10,6 +10,12 @@ import SolarPanel from './components/Panels/SolarPanel';
 import BandPanel from './components/Panels/BandPanel';
 import DXPanel from './components/Panels/DXPanel';
 import PropagationBar from './components/Panels/PropagationBar';
+import BeaconClockPanel from './components/Panels/BeaconClockPanel';
+import GreylineDxTile from './components/Panels/GreylineDxTile';
+import NextPassTile from './components/Panels/NextPassTile';
+import PotaLiveTile from './components/Panels/PotaLiveTile';
+import SotaLiveTile from './components/Panels/SotaLiveTile';
+import SatDopplerTile from './components/Panels/SatDopplerTile';
 import WorldMap from './components/Map/WorldMap';
 
 // ── Error Boundary ──────────────────────────────────────────────────
@@ -40,32 +46,6 @@ class ErrorBoundary extends React.Component<
     return this.props.children;
   }
 }
-
-// ── Tile — empty instrument tile placeholder (Pass 2 fills these) ───
-
-const Tile: React.FC<{ title: string }> = ({ title }) => (
-  <div className="ob-panel ob-inst-tile">
-    <div className="ob-panel__body">
-      <div className="ob-panel__head">
-        <span className="ob-section-label">{title}</span>
-      </div>
-      <div className="ob-tile-placeholder">Coming soon — Pass 2</div>
-    </div>
-  </div>
-);
-
-// ── BeaconClockPlaceholder — left-rail Pass 2 placeholder ───────────
-
-const BeaconClockPlaceholder: React.FC<{ className?: string }> = ({ className }) => (
-  <div className={`ob-panel ${className ?? ''}`}>
-    <div className="ob-panel__body">
-      <div className="ob-panel__head">
-        <span className="ob-section-label">NCDXF Beacon Clock</span>
-      </div>
-      <div className="ob-tile-placeholder">Coming soon — Pass 2</div>
-    </div>
-  </div>
-);
 
 // ── XRayTile — wraps NOAA GOES X-Ray image into an ob-panel tile ────
 
@@ -108,7 +88,15 @@ function AppInner() {
   const satellites = useAppStore((s) => s.satellites);
   const userLat = useAppStore((s) => s.userLat);
   const userLng = useAppStore((s) => s.userLng);
+  const potaSpots = useAppStore((s) => s.potaSpots);
+  const sotaSpots = useAppStore((s) => s.sotaSpots);
+  const satelliteTles = useAppStore((s) => s.satelliteTles);
   const isMobile = useIsMobile(1366);
+
+  // Has location once the user has set callsign (and we've stored coords).
+  // Default coords in the store are 40,-74 — only treat as "located"
+  // if the user explicitly went through setup or callsign lookup.
+  const hasLocation = !!callsign;
 
   const [selectedBand, setSelectedBand] = useState<string | null>(null);
   const [dxLocation, setDxLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -174,7 +162,7 @@ function AppInner() {
 
       <SolarPanel className="ob-area-lt-1" data={solar} />
 
-      <BeaconClockPlaceholder className="ob-area-lt-2" />
+      <BeaconClockPanel className="ob-area-lt-2" />
 
       <div className="ob-area-hero ob-panel ob-panel--crosshair">
         <div className="ob-map-host">
@@ -196,11 +184,21 @@ function AppInner() {
       <DXPanel className="ob-area-rt-2" spots={dxSpots} />
 
       <div className="ob-area-inst">
-        <Tile title="Greyline DX" />
-        <Tile title="Next Pass" />
-        <Tile title="POTA Live" />
-        <Tile title="SOTA Live" />
-        <Tile title="Sat Doppler" />
+        <GreylineDxTile userLat={userLat} userLng={userLng} />
+        <NextPassTile
+          tles={satelliteTles}
+          userLat={userLat}
+          userLng={userLng}
+          hasLocation={hasLocation}
+        />
+        <PotaLiveTile spots={potaSpots} />
+        <SotaLiveTile spots={sotaSpots} />
+        <SatDopplerTile
+          tles={satelliteTles}
+          userLat={userLat}
+          userLng={userLng}
+          hasLocation={hasLocation}
+        />
         <XRayTile />
       </div>
 

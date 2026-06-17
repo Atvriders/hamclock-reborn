@@ -8,6 +8,9 @@ import type {
   SatellitePosition,
   DayNightData,
   Contest,
+  PotaSpot,
+  SotaSpot,
+  TLE,
 } from '../types';
 
 const CALLSIGN_KEY = 'hamclock_callsign';
@@ -25,6 +28,9 @@ export const useStore = create<AppState>((set) => ({
   propagation: null,
   dayNight: null,
   contests: [],
+  potaSpots: [],
+  sotaSpots: [],
+  satelliteTles: [],
 
   // User settings
   callsign: localStorage.getItem(CALLSIGN_KEY) ?? '',
@@ -48,6 +54,9 @@ export const useStore = create<AppState>((set) => ({
   setPropagation: (data: PropagationForecast) => set({ propagation: data }),
   setDayNight: (data: DayNightData) => set({ dayNight: data }),
   setContests: (contests: Contest[]) => set({ contests }),
+  setPotaSpots: (spots: PotaSpot[]) => set({ potaSpots: spots }),
+  setSotaSpots: (spots: SotaSpot[]) => set({ sotaSpots: spots }),
+  setSatelliteTles: (tles: TLE[]) => set({ satelliteTles: tles }),
   setCallsign: (cs: string) => {
     localStorage.setItem(CALLSIGN_KEY, cs);
     set({ callsign: cs });

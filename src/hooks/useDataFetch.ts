@@ -1,12 +1,15 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useStore } from './useStore';
-import type { SolarData, BandConditions, DXSpot, SatellitePosition } from '../types';
+import type { SolarData, BandConditions, PotaSpot, SotaSpot, TLE } from '../types';
 
 // Polling intervals (ms)
 const SOLAR_INTERVAL = 5 * 60 * 1000;       // 5 minutes
 const BANDS_INTERVAL = 10 * 60 * 1000;      // 10 minutes
 const DXSPOTS_INTERVAL = 2 * 60 * 1000;     // 2 minutes
 const SATELLITES_INTERVAL = 30 * 1000;      // 30 seconds
+const POTA_INTERVAL = 60 * 1000;            // 60 seconds
+const SOTA_INTERVAL = 60 * 1000;            // 60 seconds
+const TLES_INTERVAL = 30 * 60 * 1000;       // 30 minutes (TLEs change slowly)
 
 async function safeFetch<T>(url: string): Promise<T | null> {
   try {
@@ -24,6 +27,9 @@ export function useDataFetch() {
     setBands,
     setDxSpots,
     setSatellites,
+    setPotaSpots,
+    setSotaSpots,
+    setSatelliteTles,
     setLoading,
     setError,
   } = useStore();
@@ -56,6 +62,62 @@ export function useDataFetch() {
     if (sats.length > 0) setSatellites(sats);
   }, [setSatellites]);
 
+  const fetchPotaSpots = useCallback(async () => {
+    const data = await safeFetch<unknown>('/api/pota/spots');
+    if (!Array.isArray(data)) return;
+    // Filter/normalize POTA shape — be defensive
+    const spots: PotaSpot[] = data
+      .filter((d): d is Record<string, unknown> => !!d && typeof d === 'object')
+      .map((d) => ({
+        reference: String(d.reference ?? ''),
+        parkName: String(d.parkName ?? d.name ?? ''),
+        activator: String(d.activator ?? ''),
+        spotter: d.spotter ? String(d.spotter) : undefined,
+        frequency: String(d.frequency ?? ''),
+        mode: String(d.mode ?? ''),
+        spotTime: String(d.spotTime ?? ''),
+        comments: d.comments ? String(d.comments) : undefined,
+      }))
+      .filter((s) => s.activator && s.frequency);
+    setPotaSpots(spots);
+  }, [setPotaSpots]);
+
+  const fetchSotaSpots = useCallback(async () => {
+    const data = await safeFetch<unknown>('/api/sota/spots');
+    if (!Array.isArray(data)) return;
+    const spots: SotaSpot[] = data
+      .filter((d): d is Record<string, unknown> => !!d && typeof d === 'object')
+      .map((d) => ({
+        id: Number(d.id ?? 0),
+        callsign: String(d.callsign ?? d.activatorCallsign ?? ''),
+        summitCode: String(d.summitCode ?? ''),
+        summitName: String(d.summitName ?? ''),
+        associationCode: String(d.associationCode ?? ''),
+        frequency: String(d.frequency ?? ''),
+        mode: String(d.mode ?? ''),
+        timeStamp: String(d.timeStamp ?? ''),
+        comments: d.comments ? String(d.comments) : undefined,
+      }))
+      .filter((s) => s.callsign && s.frequency);
+    setSotaSpots(spots);
+  }, [setSotaSpots]);
+
+  const fetchSatelliteTles = useCallback(async () => {
+    const data = await safeFetch<unknown>('/api/satellites/tles');
+    if (!data || typeof data !== 'object') return;
+    const obj = data as { tles?: unknown };
+    if (!Array.isArray(obj.tles)) return;
+    const tles: TLE[] = obj.tles
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === 'object')
+      .map((t) => ({
+        name: String(t.name ?? ''),
+        line1: String(t.line1 ?? ''),
+        line2: String(t.line2 ?? ''),
+      }))
+      .filter((t) => t.name && t.line1 && t.line2);
+    if (tles.length > 0) setSatelliteTles(tles);
+  }, [setSatelliteTles]);
+
   const refetch = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -65,13 +127,16 @@ export function useDataFetch() {
         fetchBands(),
         fetchDxSpots(),
         fetchSatellites(),
+        fetchPotaSpots(),
+        fetchSotaSpots(),
+        fetchSatelliteTles(),
       ]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unknown fetch error');
     } finally {
       setLoading(false);
     }
-  }, [fetchSolar, fetchBands, fetchDxSpots, fetchSatellites, setLoading, setError]);
+  }, [fetchSolar, fetchBands, fetchDxSpots, fetchSatellites, fetchPotaSpots, fetchSotaSpots, fetchSatelliteTles, setLoading, setError]);
 
   useEffect(() => {
     refetch();
@@ -82,6 +147,9 @@ export function useDataFetch() {
         setInterval(fetchBands, BANDS_INTERVAL),
         setInterval(fetchDxSpots, DXSPOTS_INTERVAL),
         setInterval(fetchSatellites, SATELLITES_INTERVAL),
+        setInterval(fetchPotaSpots, POTA_INTERVAL),
+        setInterval(fetchSotaSpots, SOTA_INTERVAL),
+        setInterval(fetchSatelliteTles, TLES_INTERVAL),
       ];
     };
 

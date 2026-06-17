@@ -17,11 +17,14 @@ const cache = {
   bands:      { data: null, ts: 0, ttl: 10 * 60_000 },
   dxspots:    { data: null, ts: 0, ttl: 2 * 60_000 },
   satellites: { data: null, ts: 0, ttl: 5 * 60_000 },
+  satTles:    { data: null, ts: 0, ttl: 30 * 60_000 },
   mapMuf:     { data: null, ts: 0, ttl: 15 * 60_000 },
   mapDrap:    { data: null, ts: 0, ttl: 15 * 60_000 },
   mapAurora:  { data: null, ts: 0, ttl: 15 * 60_000 },
   solarImage: { data: null, ts: 0, ttl: 15 * 60_000 },
   mapFoF2:    { data: null, ts: 0, ttl: 15 * 60_000 },
+  potaSpots:  { data: null, ts: 0, ttl: 60_000 },
+  sotaSpots:  { data: null, ts: 0, ttl: 60_000 },
 };
 
 
@@ -525,7 +528,70 @@ async function fetchSatelliteData() {
 
   const results = tles.map(propagateSatellite).filter(Boolean);
   console.log(`[sat] Propagated ${results.length} satellites successfully`);
+
+  // Cache raw TLEs for client-side pass prediction (Pass 2 panels)
+  setCache('satTles', {
+    tles: tles.map((t) => ({ name: t.name, line1: t.line1, line2: t.line2 })),
+    count: tles.length,
+    timestamp: new Date().toISOString(),
+  });
+
   return { satellites: results, count: results.length, timestamp: new Date().toISOString() };
+}
+
+// ── POTA + SOTA live spots ─────────────────────────────────────────────
+async function fetchPotaSpots() {
+  // POTA API returns an array of recent activator spots.
+  // Be defensive: validate shape, return [] on malformed response.
+  let raw;
+  try {
+    raw = await safeFetchJson('https://api.pota.app/spot/activator');
+  } catch (err) {
+    console.warn(`[pota] Fetch failed: ${err.message}`);
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    console.warn('[pota] Response was not an array');
+    return [];
+  }
+  // Normalize to a stable shape — keep only fields the frontend uses.
+  const spots = raw.map((s) => ({
+    reference: s.reference ?? '',
+    parkName: s.name ?? s.parkName ?? '',
+    activator: s.activator ?? '',
+    spotter: s.spotter ?? null,
+    frequency: s.frequency != null ? String(s.frequency) : '',
+    mode: s.mode ?? '',
+    spotTime: s.spotTime ?? '',
+    comments: s.comments ?? null,
+  })).filter((s) => s.activator && s.frequency);
+  return spots;
+}
+
+async function fetchSotaSpots() {
+  let raw;
+  try {
+    raw = await safeFetchJson('https://api2.sota.org.uk/api/spots/-1/all');
+  } catch (err) {
+    console.warn(`[sota] Fetch failed: ${err.message}`);
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    console.warn('[sota] Response was not an array');
+    return [];
+  }
+  const spots = raw.map((s) => ({
+    id: s.id ?? 0,
+    callsign: s.callsign ?? s.activatorCallsign ?? '',
+    summitCode: s.summitCode ?? '',
+    summitName: s.summitName ?? '',
+    associationCode: s.associationCode ?? '',
+    frequency: s.frequency != null ? String(s.frequency) : '',
+    mode: s.mode ?? '',
+    timeStamp: s.timeStamp ?? '',
+    comments: s.comments ?? null,
+  })).filter((s) => s.callsign && s.frequency);
+  return spots;
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +742,9 @@ app.get('/api/dxspots', serveCached('dxspots', []));
 
 
 app.get('/api/satellites', serveCached('satellites', { satellites: [], count: 0, status: 'loading' }));
+app.get('/api/satellites/tles', serveCached('satTles', { tles: [], count: 0, status: 'loading' }));
+app.get('/api/pota/spots', serveCached('potaSpots', []));
+app.get('/api/sota/spots', serveCached('sotaSpots', []));
 app.get('/api/maps/muf', serveCached('mapMuf', { status: 'loading' }));
 app.get('/api/maps/drap', serveCached('mapDrap', { status: 'loading' }));
 app.get('/api/maps/aurora', serveCached('mapAurora', { status: 'loading' }));
@@ -1097,7 +1166,7 @@ app.get('/api/propagation', (req, res) => {
 // Endpoint: /api/status — shows which data sources are loaded and their age
 // ---------------------------------------------------------------------------
 app.get('/api/status', (_req, res) => {
-  const sources = ['solar', 'bands', 'dxspots', 'satellites', 'mapMuf', 'mapDrap', 'mapAurora', 'solarImage', 'mapFoF2'];
+  const sources = ['solar', 'bands', 'dxspots', 'satellites', 'satTles', 'mapMuf', 'mapDrap', 'mapAurora', 'solarImage', 'mapFoF2', 'potaSpots', 'sotaSpots'];
   const status = {};
   for (const key of sources) {
     const entry = cache[key];
@@ -1158,6 +1227,10 @@ app.listen(PORT, () => {
   pollSource('dxspots', fetchDxSpots);
   pollSource('satellites', fetchSatelliteData);
 
+  // Phase 4: Live activator spots (POTA + SOTA)
+  pollSource('potaSpots', fetchPotaSpots);
+  pollSource('sotaSpots', fetchSotaSpots);
+
   // Background polling intervals
   setInterval(() => pollSource('solar', fetchSolarData),           5 * 60_000);   // every 5 min
   setInterval(() => pollSource('bands', fetchBandData),           10 * 60_000);   // every 10 min
@@ -1168,6 +1241,8 @@ app.listen(PORT, () => {
   setInterval(() => pollSource('mapAurora', fetchAuroraMap),      15 * 60_000);   // every 15 min
   setInterval(() => pollSource('solarImage', fetchSolarImages),   15 * 60_000);   // every 15 min
   setInterval(() => pollSource('mapFoF2', fetchFoF2Map),          15 * 60_000);   // every 15 min
+  setInterval(() => pollSource('potaSpots', fetchPotaSpots),       60_000);       // every 60 s
+  setInterval(() => pollSource('sotaSpots', fetchSotaSpots),       60_000);       // every 60 s
 });
 
 export default app;

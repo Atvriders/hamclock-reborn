@@ -111,6 +111,31 @@ export interface SatellitePosition {
   noradId: number;
 }
 
+// --- POTA / SOTA Spots ---------------------------------------
+
+export interface PotaSpot {
+  reference: string;            // park reference, e.g. "K-0001"
+  parkName: string;             // human-readable park name
+  activator: string;            // operator callsign
+  spotter?: string;             // who spotted them
+  frequency: string;            // kHz as string (per pota.app API)
+  mode: string;                 // CW / SSB / FT8 / etc.
+  spotTime: string;             // ISO UTC timestamp
+  comments?: string;
+}
+
+export interface SotaSpot {
+  id: number;
+  callsign: string;
+  summitCode: string;           // e.g. "W6/CT-066"
+  summitName: string;
+  associationCode: string;      // e.g. "W6"
+  frequency: string;            // MHz as string (per sota.org.uk API)
+  mode: string;
+  timeStamp: string;            // ISO UTC timestamp
+  comments?: string;
+}
+
 // --- Contest Calendar ----------------------------------------
 
 export interface Contest {
@@ -166,6 +191,9 @@ export interface AppState {
   propagation: PropagationForecast | null;
   dayNight: DayNightData | null;
   contests: Contest[];
+  potaSpots: PotaSpot[];
+  sotaSpots: SotaSpot[];
+  satelliteTles: TLE[];
 
   // User settings
   callsign: string;
@@ -186,6 +214,9 @@ export interface AppState {
   setPropagation: (data: PropagationForecast) => void;
   setDayNight: (data: DayNightData) => void;
   setContests: (contests: Contest[]) => void;
+  setPotaSpots: (spots: PotaSpot[]) => void;
+  setSotaSpots: (spots: SotaSpot[]) => void;
+  setSatelliteTles: (tles: TLE[]) => void;
   setCallsign: (cs: string) => void;
   setGridSquare: (grid: string) => void;
   setUserLocation: (lat: number, lng: number) => void;
