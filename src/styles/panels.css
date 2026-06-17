@@ -1,0 +1,510 @@
+/* Operator's Bench — per-panel primitives.
+ * Composes with ob-panel / ob-well / ob-section-label / ob-data from base.css.
+ */
+
+/* -------- Header chassis bar -------- */
+.ob-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--ob-space-4);
+  position: relative;
+  column-gap: var(--ob-space-4);
+}
+.ob-header__left,
+.ob-header__center,
+.ob-header__right {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ob-header__left { gap: var(--ob-space-3); }
+.ob-header__center { justify-content: center; gap: var(--ob-space-2); }
+.ob-header__right { justify-content: flex-end; gap: var(--ob-space-4); }
+.ob-header__callsign {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-lg);
+  letter-spacing: 0.04em;
+  color: var(--ob-amber);
+  white-space: nowrap;
+}
+.ob-header__callsign--empty {
+  color: var(--ob-muted);
+  cursor: pointer;
+}
+.ob-header__callsign-input {
+  background: var(--ob-panel-recess);
+  border: 1px solid var(--ob-amber);
+  color: var(--ob-amber);
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-md);
+  padding: 2px var(--ob-space-2);
+  width: 8ch;
+  outline: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ob-header__brand {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-sm);
+  color: var(--ob-muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.ob-header__utc {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-lg);
+  letter-spacing: 0.06em;
+  color: var(--ob-amber);
+  font-feature-settings: 'tnum' 1;
+}
+.ob-header__utc-label {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.2em;
+}
+.ob-header__local {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-weight: 400;
+  font-size: var(--ob-text-sm);
+  color: var(--ob-fg);
+  font-feature-settings: 'tnum' 1;
+}
+.ob-header__local-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+  gap: 1px;
+}
+.ob-header__date {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.08em;
+}
+.ob-header__lock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+  gap: 1px;
+}
+.ob-header__lock-line {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.05em;
+  font-feature-settings: 'tnum' 1;
+}
+.ob-header__lock-line--good { color: var(--ob-good); }
+.ob-header__lock-line--poor { color: var(--ob-poor); }
+.ob-header__grid {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-weight: 700;
+  font-size: var(--ob-text-sm);
+  color: var(--ob-fg);
+  letter-spacing: 0.08em;
+}
+
+/* etched divider line below header bar */
+.ob-header::after {
+  content: '';
+  position: absolute;
+  left: var(--ob-space-3);
+  right: var(--ob-space-3);
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--ob-chamfer-lo) 8%,
+    var(--ob-chamfer-lo) 92%,
+    transparent
+  );
+}
+
+/* -------- Panel inner padding + header rail (used by every panel) -------- */
+.ob-panel__body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--ob-space-3) var(--ob-space-3);
+  gap: var(--ob-space-2);
+}
+.ob-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ob-space-2);
+  flex-shrink: 0;
+}
+.ob-panel__head-meta {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.04em;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* -------- Data row — key / value (used in Solar panel etc) -------- */
+.ob-data-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ob-space-3);
+  padding: var(--ob-space-1) 0;
+  border-bottom: 1px solid var(--ob-chamfer-lo);
+}
+.ob-data-row:last-child { border-bottom: none; }
+.ob-data-row .key {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-sm);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ob-muted);
+  white-space: nowrap;
+}
+.ob-data-row .value {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-weight: 700;
+  font-size: var(--ob-text-md);
+  color: var(--ob-fg);
+  font-feature-settings: 'tnum' 1;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--ob-space-2);
+}
+.ob-data-row .value.live { color: var(--ob-amber); }
+.ob-data-row .value .unit {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ob-data-row .value .word {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-sm);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.ob-data-row .value .word--good { color: var(--ob-good); }
+.ob-data-row .value .word--fair { color: var(--ob-fair); }
+.ob-data-row .value .word--poor { color: var(--ob-poor); }
+
+/* -------- Hero readout: oversized SFI number -------- */
+.ob-hero-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ob-space-3);
+  padding: var(--ob-space-2) 0 var(--ob-space-3);
+  border-bottom: 1px solid var(--ob-chamfer-lo);
+  flex-shrink: 0;
+}
+.ob-hero-readout .ob-hero-readout__label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ob-hero-readout .ob-hero-readout__sub {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  font-feature-settings: 'tnum' 1;
+}
+.ob-hero-readout .ob-hero-readout__num {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-xl);
+  line-height: 1;
+  color: var(--ob-amber);
+  letter-spacing: 0.02em;
+  font-feature-settings: 'tnum' 1;
+}
+.ob-hero-readout .ob-hero-readout__unit {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-sm);
+  color: var(--ob-muted);
+  letter-spacing: 0.12em;
+  margin-left: var(--ob-space-2);
+  text-transform: uppercase;
+}
+
+/* -------- 3-segment chevron — GOOD/FAIR/POOR status encoding -------- */
+.ob-status-chevron {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.ob-status-chevron__seg {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 8px solid var(--ob-panel-recess);
+}
+.ob-status-chevron--good .ob-status-chevron__seg:nth-child(-n + 3) { border-left-color: var(--ob-good); }
+.ob-status-chevron--fair .ob-status-chevron__seg:nth-child(-n + 2) { border-left-color: var(--ob-fair); }
+.ob-status-chevron--poor .ob-status-chevron__seg:nth-child(-n + 1) { border-left-color: var(--ob-poor); }
+
+/* -------- Band matrix row -------- */
+.ob-band-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 2px;
+}
+.ob-band-row {
+  display: grid;
+  grid-template-columns: minmax(48px, auto) 1fr 1fr;
+  align-items: center;
+  gap: var(--ob-space-2);
+  padding: var(--ob-space-1) var(--ob-space-2);
+  border-bottom: 1px solid var(--ob-chamfer-lo);
+}
+.ob-band-row:last-child { border-bottom: none; }
+.ob-band-row__name {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-md);
+  color: var(--ob-fg);
+  letter-spacing: 0.04em;
+}
+.ob-band-row__slot {
+  display: flex;
+  align-items: center;
+  gap: var(--ob-space-2);
+  min-width: 0;
+}
+.ob-band-row__slot-label {
+  font-family: 'Antonio', sans-serif;
+  font-size: var(--ob-text-xs);
+  font-weight: 600;
+  color: var(--ob-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.ob-band-row__headings {
+  display: grid;
+  grid-template-columns: minmax(48px, auto) 1fr 1fr;
+  gap: var(--ob-space-2);
+  padding: 0 var(--ob-space-2) var(--ob-space-1);
+  border-bottom: 1px solid var(--ob-chamfer-lo);
+}
+.ob-band-row__heading {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* -------- DX stream list -------- */
+.ob-dx-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 1px;
+}
+.ob-dx-row {
+  display: grid;
+  grid-template-columns: 5ch 9ch 1fr 6ch 5ch;
+  align-items: center;
+  gap: var(--ob-space-2);
+  padding: 4px var(--ob-space-2);
+  border-bottom: 1px solid var(--ob-chamfer-lo);
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-size: var(--ob-text-sm);
+  font-feature-settings: 'tnum' 1;
+}
+.ob-dx-row:last-child { border-bottom: none; }
+.ob-dx-row__time { color: var(--ob-muted); }
+.ob-dx-row__freq { color: var(--ob-fg); font-weight: 700; text-align: right; }
+.ob-dx-row__call { color: var(--ob-amber); font-weight: 700; }
+.ob-dx-row__mode {
+  color: var(--ob-muted);
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: var(--ob-text-xs);
+}
+.ob-dx-row__spotter {
+  color: var(--ob-muted);
+  font-size: var(--ob-text-xs);
+  text-align: right;
+}
+.ob-dx-headings {
+  display: grid;
+  grid-template-columns: 5ch 9ch 1fr 6ch 5ch;
+  gap: var(--ob-space-2);
+  padding: 0 var(--ob-space-2) var(--ob-space-1);
+  border-bottom: 1px solid var(--ob-chamfer-lo);
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.ob-dx-headings span:nth-child(2) { text-align: right; }
+.ob-dx-headings span:last-child { text-align: right; }
+.ob-dx-empty {
+  color: var(--ob-muted);
+  text-align: center;
+  padding: var(--ob-space-5) var(--ob-space-3);
+  font-family: 'Antonio', sans-serif;
+  font-size: var(--ob-text-sm);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* -------- Band pills (bottom rail) -------- */
+.ob-rail {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 var(--ob-space-3);
+  gap: var(--ob-space-3);
+}
+.ob-rail__legend {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.ob-rail__pills {
+  display: flex;
+  gap: var(--ob-space-2);
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+.ob-rail__status {
+  display: flex;
+  align-items: center;
+  gap: var(--ob-space-3);
+  flex-shrink: 0;
+  font-family: 'Antonio', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.ob-rail__status-value {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.ob-rail__status-value--on { color: var(--ob-good); }
+.ob-rail__status-value--off { color: var(--ob-muted); }
+
+.ob-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ob-space-2);
+  padding: 4px var(--ob-space-2);
+  background: var(--ob-panel-recess);
+  border: 1px solid var(--ob-chamfer-lo);
+  color: var(--ob-fg);
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-feature-settings: 'tnum' 1;
+  cursor: pointer;
+  font-size: var(--ob-text-xs);
+}
+.ob-pill__band {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.ob-pill__state {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.ob-pill--on { border-color: var(--ob-good); }
+.ob-pill--on .ob-pill__state { color: var(--ob-good); }
+.ob-pill--off .ob-pill__state { color: var(--ob-muted); }
+.ob-pill--selected {
+  border-color: var(--ob-amber);
+  color: var(--ob-amber);
+}
+.ob-pill--selected .ob-pill__band,
+.ob-pill--selected .ob-pill__state { color: var(--ob-amber); }
+
+/* -------- Tile placeholders (instrument row) -------- */
+.ob-tile-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-family: 'Antonio', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: var(--ob-space-3);
+  text-align: center;
+}
+.ob-xray-tile-img {
+  flex: 1;
+  min-height: 0;
+  object-fit: contain;
+  width: 100%;
+  height: auto;
+}
+.ob-xray-tile-fallback {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Antonio', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* -------- WorldMap host fills the hero grid area -------- */
+.ob-map-host {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  width: 100%;
+}
+.ob-map-host > * { height: 100%; width: 100%; }
+
+/* -------- Panel footer (timestamp etc) -------- */
+.ob-panel__foot {
+  font-family: 'Atkinson Hyperlegible', sans-serif;
+  font-size: var(--ob-text-xs);
+  color: var(--ob-muted);
+  text-align: right;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}

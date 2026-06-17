@@ -1,27 +1,41 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 interface HeaderProps {
+  className?: string;
   callsign?: string;
   onCallsignChange?: (callsign: string) => void;
+  gridSquare?: string;
 }
 
-const COLORS = {
-  bg: '#080c12',
-  primary: '#ffffff',
-  cyan: '#00d4ff',
-  muted: '#4a5568',
-  border: '#1a2332',
-  text: '#8899aa',
-  green: '#00ff88',
-  red: '#ff4444',
-};
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
-const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChange }) => {
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function formatUTC(d: Date): string {
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
+}
+
+function formatLocal(d: Date): string {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function formatDate(d: Date): string {
+  return `${pad2(d.getDate())} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+const Header: React.FC<HeaderProps> = ({
+  className,
+  callsign: callsignProp,
+  onCallsignChange,
+  gridSquare,
+}) => {
   const [utcTime, setUtcTime] = useState(new Date());
   const [callsign, setCallsign] = useState(() => {
     return callsignProp || localStorage.getItem('hamclock_callsign') || '';
   });
-  const [editingCallsign, setEditingCallsign] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [dataFlowing, setDataFlowing] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -30,14 +44,12 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
     return () => clearInterval(timer);
   }, []);
 
-  // Sync prop changes
   useEffect(() => {
     if (callsignProp !== undefined && callsignProp !== callsign) {
       setCallsign(callsignProp);
     }
-  }, [callsignProp]);
+  }, [callsignProp]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Simple connection status: pulse green, go red after 60s of no update
   useEffect(() => {
     const check = setInterval(() => {
       const lastFetch = localStorage.getItem('hamclock_last_fetch');
@@ -49,152 +61,71 @@ const Header: React.FC<HeaderProps> = ({ callsign: callsignProp, onCallsignChang
     return () => clearInterval(check);
   }, []);
 
-  // Focus input when editing starts
   useEffect(() => {
-    if (editingCallsign && inputRef.current) {
+    if (editing && inputRef.current) {
       inputRef.current.focus();
       inputRef.current.select();
     }
-  }, [editingCallsign]);
+  }, [editing]);
 
-  const handleCallsignSave = useCallback((value: string) => {
-    const upper = value.toUpperCase().trim();
-    setCallsign(upper);
-    localStorage.setItem('hamclock_callsign', upper);
-    setEditingCallsign(false);
-    onCallsignChange?.(upper);
-  }, [onCallsignChange]);
-
-  const formatUTC = (d: Date): string => {
-    const h = String(d.getUTCHours()).padStart(2, '0');
-    const m = String(d.getUTCMinutes()).padStart(2, '0');
-    const s = String(d.getUTCSeconds()).padStart(2, '0');
-    return `${h}:${m}:${s}`;
-  };
-
-  const formatLocalTime = (d: Date): string => {
-    return d.toLocaleTimeString('en-US', { hour12: false });
-  };
-
-  const formatDate = (d: Date): string => {
-    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-    return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
-  };
+  const handleSave = useCallback(
+    (value: string) => {
+      const upper = value.toUpperCase().trim();
+      setCallsign(upper);
+      localStorage.setItem('hamclock_callsign', upper);
+      setEditing(false);
+      onCallsignChange?.(upper);
+    },
+    [onCallsignChange],
+  );
 
   return (
-    <header style={{
-      height: 44,
-      background: COLORS.bg,
-      borderBottom: `1px solid ${COLORS.border}`,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '0 16px',
-      fontFamily: "'Courier New', Courier, monospace",
-      boxSizing: 'border-box',
-    }}>
-      {/* Left: Title + Callsign */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
-        <span style={{
-          color: COLORS.primary,
-          fontSize: 13,
-          fontWeight: 'bold',
-          letterSpacing: 2,
-          whiteSpace: 'nowrap',
-        }}>
-          HAMCLOCK REBORN
-        </span>
-        {editingCallsign ? (
+    <header className={`ob-panel ob-header ${className ?? ''}`}>
+      <div className="ob-header__left">
+        <span className="ob-header__brand">HamClock Reborn</span>
+        {editing ? (
           <input
             ref={inputRef}
+            className="ob-header__callsign-input"
             defaultValue={callsign}
             placeholder="CALL"
             maxLength={10}
-            onBlur={(e) => handleCallsignSave(e.target.value)}
+            onBlur={(e) => handleSave(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCallsignSave((e.target as HTMLInputElement).value);
-              if (e.key === 'Escape') setEditingCallsign(false);
-            }}
-            style={{
-              background: '#0d1520',
-              border: `1px solid ${COLORS.cyan}`,
-              color: COLORS.cyan,
-              fontFamily: "'Courier New', Courier, monospace",
-              fontSize: 12,
-              padding: '1px 5px',
-              width: 80,
-              outline: 'none',
-              textTransform: 'uppercase',
-              borderRadius: 2,
+              if (e.key === 'Enter') handleSave((e.target as HTMLInputElement).value);
+              if (e.key === 'Escape') setEditing(false);
             }}
           />
         ) : (
           <span
-            onClick={() => setEditingCallsign(true)}
+            className={`ob-display ob-header__callsign ${callsign ? '' : 'ob-header__callsign--empty'}`}
+            onClick={() => setEditing(true)}
             title="Click to edit callsign"
-            style={{
-              color: callsign ? COLORS.cyan : COLORS.muted,
-              fontSize: 12,
-              cursor: 'pointer',
-              padding: '1px 5px',
-              borderRadius: 2,
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = '#0d1520')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
             {callsign || 'CALLSIGN'}
           </span>
         )}
+        {gridSquare && <span className="ob-header__grid">{gridSquare}</span>}
       </div>
 
-      {/* Center: UTC Clock */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        position: 'absolute',
-        left: '50%',
-        transform: 'translateX(-50%)',
-      }}>
-        <span style={{
-          color: COLORS.primary,
-          fontSize: 24,
-          fontWeight: 'bold',
-          letterSpacing: 3,
-          lineHeight: 1,
-          fontFamily: "'Courier New', Courier, monospace",
-        }}>
-          {formatUTC(utcTime)}
-        </span>
-        <span style={{ color: COLORS.muted, fontSize: 8, letterSpacing: 2, marginTop: 1 }}>UTC</span>
+      <div className="ob-header__center">
+        <span className="ob-header__utc ob-amber-live">{formatUTC(utcTime)}</span>
+        <span className="ob-header__utc-label">UTC</span>
       </div>
 
-      {/* Right: Local Time + Date + Status Dot */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240, justifyContent: 'flex-end' }}>
-        <div style={{ textAlign: 'right', lineHeight: 1.3 }}>
-          <div style={{ color: COLORS.text, fontSize: 12, letterSpacing: 1 }}>
-            {formatLocalTime(utcTime)}
-          </div>
-          <div style={{ color: COLORS.muted, fontSize: 10, letterSpacing: 1 }}>
-            {formatDate(utcTime)}
-          </div>
+      <div className="ob-header__right">
+        <div className="ob-header__local-block">
+          <span className="ob-header__local">{formatLocal(utcTime)} LOCAL</span>
+          <span className="ob-header__date">{formatDate(utcTime)}</span>
         </div>
-        {/* Connection status dot */}
-        <div
-          title={dataFlowing ? 'Data flowing' : 'No data connection'}
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: dataFlowing ? COLORS.green : COLORS.red,
-            boxShadow: dataFlowing
-              ? `0 0 6px ${COLORS.green}80`
-              : `0 0 6px ${COLORS.red}80`,
-            flexShrink: 0,
-            transition: 'background 0.3s, box-shadow 0.3s',
-          }}
-        />
+        <div className="ob-header__lock">
+          <span
+            className={`ob-header__lock-line ${dataFlowing ? 'ob-header__lock-line--good' : 'ob-header__lock-line--poor'}`}
+          >
+            {dataFlowing ? 'LOCK ACQUIRED' : 'NO LOCK'}
+          </span>
+          <span className="ob-header__lock-line">S/N 73-2026 · WWV ±0.000s</span>
+        </div>
       </div>
     </header>
   );

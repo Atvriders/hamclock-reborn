@@ -1,0 +1,110 @@
+/* Operator's Bench — chassis grid layout.
+ * 100% viewport, zero scroll, fluid 1366→1920→3440.
+ *
+ * Region map:
+ *   head  head  head     (44px — chassis header bar)
+ *   lt-1  hero  rt-1     (42vh — solar / world map / band matrix)
+ *   lt-2  inst  rt-2     (1fr   — beacon clock / 6 instrument tiles / dx stream)
+ *   rail  rail  rail     (40px — band pills bottom)
+ */
+
+.ob-chassis {
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  background: var(--ob-bg);
+  grid-template-columns: clamp(260px, 18vw, 380px) 1fr clamp(260px, 18vw, 380px);
+  grid-template-rows: 44px clamp(40vh, 42vh, 46vh) 1fr 40px;
+  grid-template-areas:
+    "head head head"
+    "lt-1 hero rt-1"
+    "lt-2 inst rt-2"
+    "rail rail rail";
+  gap: var(--ob-space-2);
+  padding: var(--ob-space-2);
+}
+
+.ob-area-head { grid-area: head; }
+.ob-area-lt-1 { grid-area: lt-1; }   /* SOLAR */
+.ob-area-lt-2 { grid-area: lt-2; }   /* BEACON CLOCK (placeholder until Pass 2) */
+.ob-area-hero { grid-area: hero; }   /* WORLD MAP */
+.ob-area-rt-1 { grid-area: rt-1; }   /* BAND MATRIX */
+.ob-area-rt-2 { grid-area: rt-2; }   /* DX STREAM */
+.ob-area-inst {
+  grid-area: inst;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--ob-space-2);
+}
+.ob-area-rail { grid-area: rail; }   /* BAND PILLS BOTTOM */
+
+/* Every direct grid child clamps to 0 so children obey instead of bursting. */
+.ob-chassis > * {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The bottom-row instrument tiles also clamp. */
+.ob-inst-tile {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Ultrawide ≥2400px — widen rails, 7 instrument tiles. */
+@media (min-width: 2400px) {
+  .ob-chassis {
+    grid-template-columns: clamp(320px, 17vw, 440px) 1fr clamp(320px, 17vw, 440px);
+  }
+  .ob-area-inst {
+    grid-template-columns: repeat(7, 1fr);
+  }
+}
+
+/* 1366 narrow desktop — tighter rails, 4 instrument tiles. */
+@media (max-width: 1480px) {
+  .ob-chassis {
+    grid-template-columns: clamp(240px, 19vw, 300px) 1fr clamp(240px, 19vw, 300px);
+  }
+  .ob-area-inst {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Mobile splash — Pass 2 will rework. */
+.ob-mobile-splash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  background: var(--ob-bg);
+  color: var(--ob-fg);
+  padding: var(--ob-space-6);
+  text-align: center;
+  gap: var(--ob-space-4);
+}
+
+.ob-mobile-splash__brand {
+  font-family: 'Antonio', sans-serif;
+  font-weight: 600;
+  font-size: var(--ob-text-xl);
+  letter-spacing: 0.08em;
+  color: var(--ob-amber);
+}
+
+.ob-mobile-splash__msg {
+  font-size: var(--ob-text-md);
+  color: var(--ob-fg);
+  max-width: 32ch;
+  line-height: 1.4;
+}
+
+.ob-mobile-splash__legend {
+  font-size: var(--ob-text-sm);
+  color: var(--ob-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
