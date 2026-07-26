@@ -2,12 +2,27 @@ import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import * as satellite from 'satellite.js';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
 
 const app = express();
-const PORT = 3013;
+const PORT = Number.parseInt(process.env.PORT, 10) || 3013;
 
 app.use(cors());
-app.use(express.json());
+
+// Global JSON body parser — deliberately left at the body-parser default of
+// 100 kb. POST /api/telemetry is the ONE route that needs a bigger limit (a
+// base64 PNG screenshot straddles 100 kb), so it is excluded here and mounts
+// its own 1 mb parser. Raising the global limit would hand every other route a
+// larger memory-exhaustion window for no reason.
+const globalJsonParser = express.json();
+app.use((req, res, next) => {
+  if (isTelemetryIngestPath(req.path)) return next();
+  return globalJsonParser(req, res, next);
+});
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -1205,11 +1220,725 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+// ===========================================================================
+// OPT-IN DIAGNOSTICS TELEMETRY
+// ---------------------------------------------------------------------------
+// Receiving half of the HamClock Pi 1B opt-in diagnostics feature. The kiosk
+// NEVER sends on its own: a report is transmitted only when the operator
+// presses "send" on the device, every single time. This endpoint just accepts
+// what arrives.
+//
+// It is reachable from the open internet (nginx proxies /api/ to :3013), so
+// every byte below is treated as hostile:
+//   * dedicated 1 mb body parser mounted on this route only
+//   * in-memory rate limiter keyed by client IP, bounded key map
+//   * strict shape validation, unknown top-level keys rejected
+//   * screenshots verified as real PNGs, size-capped, written as files
+//   * bounded disk use — reports and screenshots are pruned oldest-first
+//   * receive time and a hashed/truncated IP recorded server-side; the
+//     client-supplied `sent_at` is stored but never trusted
+// Errors never echo submitted content and never leak a stack trace.
+//
+// NOTE ON PRIVACY: a screenshot shows the operator's callsign in the header,
+// so a report WITH a screenshot is not anonymous. The Pi side says so plainly
+// in its confirm step. Nothing here should ever be presented as anonymous.
+// ===========================================================================
+
+const TELEMETRY_SCHEMA = 1;
+const TELEMETRY_ROUTE = '/api/telemetry';
+
+const __filename_srv = fileURLToPath(import.meta.url);
+const __dirname_srv = path.dirname(__filename_srv);
+
+function envInt(name, def, min, max) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return def;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < min || n > max) return def;
+  return n;
+}
+
+// Storage lives next to the app (server/data/... locally, /app/data/... in the
+// container image, whose WORKDIR is /app and entrypoint is src/server.js).
+// HAMCLOCK_TELEMETRY_DIR overrides it — used by the tests, and useful for
+// pointing at a mounted volume in production.
+const TELEMETRY_DIR = process.env.HAMCLOCK_TELEMETRY_DIR
+  ? path.resolve(process.env.HAMCLOCK_TELEMETRY_DIR)
+  : path.resolve(__dirname_srv, '..', 'data', 'telemetry');
+const TELEMETRY_SHOTS_DIR = path.join(TELEMETRY_DIR, 'shots');
+const TELEMETRY_LOG_PATH = path.join(TELEMETRY_DIR, 'reports.jsonl');
+const TELEMETRY_TMP_PATH = path.join(TELEMETRY_DIR, 'reports.jsonl.tmp');
+const TELEMETRY_SALT_PATH = path.join(TELEMETRY_DIR, 'ip-salt');
+
+const TELEMETRY_LIMITS = {
+  // Wire
+  bodyLimit: '1mb',
+  maxShotB64Chars: 560_000,          // ~410 kB decoded; body limit also caps this
+  maxShotBytes: 400 * 1024,          // decoded PNG
+  maxRecordJsonBytes: 16 * 1024,     // everything except the screenshot
+  // Value shaping
+  maxString: 200,
+  maxKeys: 60,
+  maxArray: 64,
+  maxDepth: 6,
+  // Rate limiting (per client IP)
+  perHour: envInt('HAMCLOCK_TELEMETRY_RATE_HOUR', 10, 1, 100_000),
+  perDay: envInt('HAMCLOCK_TELEMETRY_RATE_DAY', 60, 1, 1_000_000),
+  readsPerHour: envInt('HAMCLOCK_TELEMETRY_READ_RATE_HOUR', 120, 1, 1_000_000),
+  maxRateKeys: 5_000,                // bounded: the key map is itself a DoS vector
+  // Disk
+  maxReportsPerDevice: envInt('HAMCLOCK_TELEMETRY_MAX_PER_DEVICE', 25, 1, 100_000),
+  maxReportsTotal: envInt('HAMCLOCK_TELEMETRY_MAX_REPORTS', 500, 1, 1_000_000),
+  maxShotBytesTotal: 100 * 1024 * 1024,
+  maxLogBytes: 32 * 1024 * 1024,
+  // Read API
+  defaultReadLimit: 25,
+  maxReadLimit: 100,
+};
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ISO_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:?\d{2})?$/;
+const SAFE_KEY_RE = /^[A-Za-z0-9_.:\- ]{1,64}$/;
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+const TELEMETRY_TOP_KEYS = new Set([
+  'schema', 'device_id', 'sent_at', 'app', 'host',
+  'display', 'versions', 'perf', 'server', 'screenshot_png_b64',
+]);
+const TELEMETRY_SECTIONS = ['app', 'host', 'display', 'versions', 'perf', 'server'];
+
+// The global body-parser skips this exact path (see top of file). Match the
+// way Express matches: case-insensitively and ignoring a trailing slash.
+function isTelemetryIngestPath(p) {
+  const norm = String(p || '').toLowerCase().replace(/\/+$/, '');
+  return norm === TELEMETRY_ROUTE;
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry: client IP
+// ---------------------------------------------------------------------------
+function normaliseIp(addr) {
+  if (typeof addr !== 'string') return '';
+  return addr.trim().slice(0, 45).replace(/^::ffff:/i, '').toLowerCase();
+}
+
+function isPlausibleIp(addr) {
+  if (typeof addr !== 'string' || addr.length === 0 || addr.length > 45) return false;
+  const a = addr.replace(/^::ffff:/i, '');
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(a)) {
+    return a.split('.').every((o) => Number(o) <= 255);
+  }
+  return /^[0-9a-f:]{2,45}$/i.test(a) && a.includes(':');
+}
+
+// Only a proxy on loopback / RFC1918 / ULA may speak for someone else.
+function isTrustedProxyAddr(addr) {
+  const a = normaliseIp(addr);
+  if (!a) return false;
+  if (a === '127.0.0.1' || a === '::1') return true;
+  if (/^127\./.test(a)) return true;
+  if (/^10\./.test(a)) return true;
+  if (/^192\.168\./.test(a)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(a)) return true;
+  if (/^f[cd][0-9a-f]{2}:/.test(a)) return true;      // IPv6 unique-local
+  return false;
+}
+
+// Forwarding headers are honoured ONLY when the socket peer is our own proxy.
+// nginx.conf *sets* X-Real-IP ($remote_addr) so a client cannot forge it, and
+// *appends* to X-Forwarded-For — so only the first hop of XFF is ever read,
+// and only as a fallback. A direct-to-:3013 caller gets its socket address and
+// its headers ignored entirely.
+function clientIp(req) {
+  const socketAddr = (req.socket && req.socket.remoteAddress) || '';
+  if (!isTrustedProxyAddr(socketAddr)) return normaliseIp(socketAddr) || 'unknown';
+
+  const real = req.headers['x-real-ip'];
+  if (typeof real === 'string' && isPlausibleIp(real.trim())) return normaliseIp(real);
+
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length <= 1024) {
+    const first = xff.split(',')[0].trim();
+    if (isPlausibleIp(first)) return normaliseIp(first);
+  }
+  return normaliseIp(socketAddr) || 'unknown';
+}
+
+function truncateIp(ip) {
+  if (!ip || ip === 'unknown') return 'unknown';
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    return `${ip.split('.').slice(0, 3).join('.')}.0/24`;
+  }
+  if (ip.includes(':')) return `${ip.split(':').slice(0, 3).join(':')}::/48`;
+  return 'unknown';
+}
+
+let telemetryIpSalt = null;
+function hashIp(ip) {
+  if (!telemetryIpSalt) return null;
+  return crypto.createHash('sha256').update(`${telemetryIpSalt}:${ip}`).digest('hex').slice(0, 16);
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry: rate limiter (fixed window, bounded LRU key map)
+// ---------------------------------------------------------------------------
+function createRateLimiter({ perHour, perDay, maxKeys }) {
+  const buckets = new Map();   // key -> { hStart, hCount, dStart, dCount }; Map keeps insertion order
+
+  return function check(key, now = Date.now()) {
+    // Amortised cleanup: retire the least-recently-seen bucket once its day
+    // window has fully expired. Combined with the hard cap below the map can
+    // never grow without limit.
+    const oldestKey = buckets.keys().next();
+    if (!oldestKey.done) {
+      const oldest = buckets.get(oldestKey.value);
+      if (oldest && now - oldest.dStart >= DAY_MS) buckets.delete(oldestKey.value);
+    }
+
+    let ent = buckets.get(key);
+    if (!ent) ent = { hStart: now, hCount: 0, dStart: now, dCount: 0 };
+    if (now - ent.hStart >= HOUR_MS) { ent.hStart = now; ent.hCount = 0; }
+    if (now - ent.dStart >= DAY_MS) { ent.dStart = now; ent.dCount = 0; }
+
+    let result;
+    if (perDay !== undefined && ent.dCount >= perDay) {
+      result = { allowed: false, retryAfter: Math.max(1, Math.ceil((ent.dStart + DAY_MS - now) / 1000)) };
+    } else if (ent.hCount >= perHour) {
+      result = { allowed: false, retryAfter: Math.max(1, Math.ceil((ent.hStart + HOUR_MS - now) / 1000)) };
+    } else {
+      ent.hCount += 1;
+      ent.dCount += 1;
+      result = { allowed: true, retryAfter: 0 };
+    }
+
+    // Re-insert to move to the back → the map is LRU-ordered by last request.
+    buckets.delete(key);
+    buckets.set(key, ent);
+    while (buckets.size > maxKeys) {
+      const victim = buckets.keys().next();
+      if (victim.done) break;
+      buckets.delete(victim.value);
+    }
+    return result;
+  };
+}
+
+const telemetryPostLimiter = createRateLimiter({
+  perHour: TELEMETRY_LIMITS.perHour,
+  perDay: TELEMETRY_LIMITS.perDay,
+  maxKeys: TELEMETRY_LIMITS.maxRateKeys,
+});
+const telemetryReadLimiter = createRateLimiter({
+  perHour: TELEMETRY_LIMITS.readsPerHour,
+  perDay: undefined,
+  maxKeys: TELEMETRY_LIMITS.maxRateKeys,
+});
+
+// ---------------------------------------------------------------------------
+// Telemetry: value sanitising
+// ---------------------------------------------------------------------------
+function sanitiseString(s) {
+  // Hard-cap the length first (so a huge string is never rewritten whole),
+  // then strip control characters — log-injection hygiene.
+  return s.slice(0, TELEMETRY_LIMITS.maxString).replace(/[\u0000-\u001f\u007f]/g, ' ');
+}
+
+function sanitiseValue(v, depth = 0) {
+  if (v === null) return null;
+  const t = typeof v;
+  if (t === 'string') return sanitiseString(v);
+  if (t === 'number') return Number.isFinite(v) ? v : null;
+  if (t === 'boolean') return v;
+  if (t !== 'object') return null;                       // undefined/function/symbol/bigint
+  if (depth >= TELEMETRY_LIMITS.maxDepth) return null;
+
+  if (Array.isArray(v)) {
+    return v.slice(0, TELEMETRY_LIMITS.maxArray).map((x) => sanitiseValue(x, depth + 1));
+  }
+
+  const out = {};
+  let n = 0;
+  for (const key of Object.keys(v)) {
+    if (n >= TELEMETRY_LIMITS.maxKeys) break;
+    if (UNSAFE_KEYS.has(key)) continue;                  // prototype-pollution guard
+    if (!SAFE_KEY_RE.test(key)) continue;
+    out[key] = sanitiseValue(v[key], depth + 1);
+    n += 1;
+  }
+  return out;
+}
+
+function isPlainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function pick(obj, keys) {
+  const out = {};
+  if (!isPlainObject(obj)) return out;
+  for (const k of keys) if (obj[k] !== undefined) out[k] = obj[k];
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry: validation
+//
+// Errors are fixed strings. Nothing the caller submitted — not even a key name
+// — is ever echoed back, so this can't be used as a reflection gadget.
+// ---------------------------------------------------------------------------
+function validateTelemetryBody(body) {
+  if (!isPlainObject(body)) return { error: 'invalid_body', status: 400 };
+
+  for (const key of Object.keys(body)) {
+    if (!TELEMETRY_TOP_KEYS.has(key)) return { error: 'unknown_field', status: 400 };
+  }
+
+  if (body.schema !== TELEMETRY_SCHEMA) return { error: 'unsupported_schema', status: 400 };
+
+  if (typeof body.device_id !== 'string' || !UUID_RE.test(body.device_id)) {
+    return { error: 'invalid_device_id', status: 400 };
+  }
+
+  let sentAt = null;
+  if (body.sent_at !== undefined && body.sent_at !== null) {
+    if (typeof body.sent_at !== 'string' || body.sent_at.length > 40 || !ISO_RE.test(body.sent_at)) {
+      return { error: 'invalid_sent_at', status: 400 };
+    }
+    sentAt = body.sent_at;
+  }
+
+  const sections = {};
+  for (const name of TELEMETRY_SECTIONS) {
+    const v = body[name];
+    if (v === undefined || v === null) { sections[name] = null; continue; }
+    if (!isPlainObject(v)) return { error: `invalid_${name}`, status: 400 };
+    sections[name] = sanitiseValue(v, 1);
+  }
+
+  // Bound the non-screenshot part of the record before anything touches disk.
+  const bodyBytes = Buffer.byteLength(JSON.stringify(sections));
+  if (bodyBytes > TELEMETRY_LIMITS.maxRecordJsonBytes) {
+    return { error: 'report_fields_too_large', status: 413 };
+  }
+
+  return {
+    ok: true,
+    deviceId: body.device_id.toLowerCase(),
+    sentAt,
+    sections,
+    screenshotB64: body.screenshot_png_b64 === undefined ? null : body.screenshot_png_b64,
+  };
+}
+
+// Returns { buf } (buf may be null when no screenshot was sent) or { error }.
+function decodeScreenshot(raw) {
+  if (raw === null || raw === undefined) return { buf: null };
+  if (typeof raw !== 'string') return { error: 'invalid_screenshot', status: 400 };
+  if (raw.length > TELEMETRY_LIMITS.maxShotB64Chars) return { error: 'screenshot_too_large', status: 413 };
+
+  const clean = raw.replace(/\s+/g, '');
+  if (clean.length === 0) return { buf: null };
+  if (clean.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(clean)) {
+    return { error: 'invalid_screenshot_encoding', status: 400 };
+  }
+
+  let buf;
+  try { buf = Buffer.from(clean, 'base64'); }
+  catch { return { error: 'invalid_screenshot_encoding', status: 400 }; }
+
+  if (buf.length === 0) return { error: 'invalid_screenshot_encoding', status: 400 };
+  if (buf.length > TELEMETRY_LIMITS.maxShotBytes) return { error: 'screenshot_too_large', status: 413 };
+  if (buf.length < 33) return { error: 'screenshot_not_png', status: 400 };
+  if (!buf.subarray(0, 8).equals(PNG_MAGIC)) return { error: 'screenshot_not_png', status: 400 };
+  if (buf.toString('latin1', 12, 16) !== 'IHDR') return { error: 'screenshot_not_png', status: 400 };
+
+  return { buf };
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry: storage
+// ---------------------------------------------------------------------------
+let telemetryReady = false;
+const telemetryIndex = [];   // metadata only, oldest first
+let telemetryWriteChain = Promise.resolve();
+
+function enqueueTelemetryWrite(fn) {
+  // Serialise every append/prune so concurrent requests can't interleave a
+  // rewrite with an append.
+  const run = telemetryWriteChain.then(fn, fn);
+  telemetryWriteChain = run.then(() => {}, () => {});
+  return run;
+}
+
+// Filename is derived here, never from anything the caller supplied.
+function screenshotFileName(deviceId, id, whenMs) {
+  const safeDevice = deviceId.toLowerCase().replace(/[^a-f0-9-]/g, '').slice(0, 36) || 'unknown';
+  const stamp = new Date(whenMs).toISOString().replace(/[:.]/g, '-');
+  const suffix = id.replace(/[^a-f0-9]/gi, '').slice(0, 8);
+  return `${safeDevice}_${stamp}_${suffix}.png`;
+}
+
+function shotPathFor(name) {
+  const full = path.resolve(TELEMETRY_SHOTS_DIR, name);
+  if (path.dirname(full) !== path.resolve(TELEMETRY_SHOTS_DIR)) {
+    throw new Error('screenshot path escapes storage directory');
+  }
+  return full;
+}
+
+// Public (unauthenticated) projection — see GET /api/telemetry/reports.
+function publicView(record) {
+  return {
+    id: record.id,
+    device_id: record.device_id,
+    received_at: record.received_at,
+    sent_at_claimed: record.sent_at_claimed ?? null,
+    app: pick(record.app, ['version', 'mode', 'install']),
+    host: pick(record.host, ['model', 'cpu', 'cores', 'mem_total_kb', 'kernel', 'os', 'python', 'uptime_s']),
+    display: pick(record.display, ['sdl_driver', 'bitsize', 'size', 'fullscreen']),
+    versions: pick(record.versions, ['pygame', 'sdl', 'cairosvg', 'cpulimit']),
+    perf: pick(record.perf, ['frame_ms', 'panel_ms', 'boot_to_first_paint_s']),
+    has_screenshot: Boolean(record.screenshot),
+    screenshot_bytes: record.screenshot_bytes || 0,
+  };
+}
+
+function indexEntry(record) {
+  return {
+    id: record.id,
+    device_id: record.device_id,
+    received_at: record.received_at,
+    screenshot: record.screenshot || null,
+    screenshot_bytes: record.screenshot_bytes || 0,
+    view: publicView(record),
+  };
+}
+
+function readLogTail(size) {
+  // Only ever read the tail — a log that somehow grew past the cap must not be
+  // slurped whole into memory.
+  const max = TELEMETRY_LIMITS.maxLogBytes;
+  if (size <= max) return fs.readFileSync(TELEMETRY_LOG_PATH, 'utf8');
+  const fd = fs.openSync(TELEMETRY_LOG_PATH, 'r');
+  try {
+    const buf = Buffer.alloc(max);
+    fs.readSync(fd, buf, 0, max, size - max);
+    const text = buf.toString('utf8');
+    return text.slice(text.indexOf('\n') + 1);   // drop the partial first line
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function initTelemetryStorage() {
+  try {
+    fs.mkdirSync(TELEMETRY_SHOTS_DIR, { recursive: true });
+
+    if (fs.existsSync(TELEMETRY_SALT_PATH)) {
+      telemetryIpSalt = fs.readFileSync(TELEMETRY_SALT_PATH, 'utf8').trim();
+    }
+    if (!telemetryIpSalt) {
+      telemetryIpSalt = crypto.randomBytes(32).toString('hex');
+      fs.writeFileSync(TELEMETRY_SALT_PATH, `${telemetryIpSalt}\n`, { mode: 0o600 });
+    }
+
+    if (fs.existsSync(TELEMETRY_LOG_PATH)) {
+      const { size } = fs.statSync(TELEMETRY_LOG_PATH);
+      for (const line of readLogTail(size).split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const rec = JSON.parse(line);
+          if (rec && typeof rec.id === 'string' && typeof rec.device_id === 'string') {
+            telemetryIndex.push(indexEntry(rec));
+          }
+        } catch { /* skip unparseable line */ }
+      }
+      // Trim anything that is already over the retention caps.
+      if (telemetryIndex.length > TELEMETRY_LIMITS.maxReportsTotal) {
+        telemetryIndex.splice(0, telemetryIndex.length - TELEMETRY_LIMITS.maxReportsTotal);
+      }
+    }
+
+    telemetryReady = true;
+    console.log(`[telemetry] storage ready at ${TELEMETRY_DIR} (${telemetryIndex.length} report(s) on disk)`);
+    enqueueTelemetryWrite(() => sweepOrphanScreenshots());
+    enqueueTelemetryWrite(() => enforceRetention());
+  } catch (err) {
+    telemetryReady = false;
+    console.warn(`[telemetry] storage unavailable — endpoint will refuse reports: ${err.message}`);
+  }
+}
+
+// Delete screenshot files that no record references (crash between the file
+// write and the log append would otherwise leak bytes forever).
+async function sweepOrphanScreenshots() {
+  try {
+    const referenced = new Set(telemetryIndex.map((e) => e.screenshot).filter(Boolean));
+    const files = await fsp.readdir(TELEMETRY_SHOTS_DIR);
+    for (const f of files) {
+      if (!f.endsWith('.png') || referenced.has(f)) continue;
+      await fsp.unlink(shotPathFor(f)).catch(() => {});
+    }
+  } catch { /* non-fatal */ }
+}
+
+// Caps are hard ceilings; when one is crossed we prune down to a low-water
+// mark (90%) rather than to the ceiling. Pruning rewrites the whole log, so
+// pruning in batches keeps a flood from forcing a full rewrite on every single
+// accepted report while the stored total stays bounded either way.
+function lowWater(cap) {
+  return Math.max(1, Math.ceil(cap * 0.9));
+}
+
+function selectForEviction() {
+  const drop = new Set();
+  const perDevice = new Map();
+  const perDeviceTotals = new Map();
+  for (const e of telemetryIndex) {
+    perDeviceTotals.set(e.device_id, (perDeviceTotals.get(e.device_id) || 0) + 1);
+  }
+
+  // Per-device cap, keeping the most recent.
+  const deviceLow = lowWater(TELEMETRY_LIMITS.maxReportsPerDevice);
+  for (let i = telemetryIndex.length - 1; i >= 0; i -= 1) {
+    const e = telemetryIndex[i];
+    if ((perDeviceTotals.get(e.device_id) || 0) <= TELEMETRY_LIMITS.maxReportsPerDevice) continue;
+    const seen = (perDevice.get(e.device_id) || 0) + 1;
+    perDevice.set(e.device_id, seen);
+    if (seen > deviceLow) drop.add(e.id);
+  }
+
+  // Global count cap, oldest first.
+  let kept = telemetryIndex.length - drop.size;
+  if (kept > TELEMETRY_LIMITS.maxReportsTotal) {
+    const target = lowWater(TELEMETRY_LIMITS.maxReportsTotal);
+    for (let i = 0; i < telemetryIndex.length && kept > target; i += 1) {
+      if (drop.has(telemetryIndex[i].id)) continue;
+      drop.add(telemetryIndex[i].id);
+      kept -= 1;
+    }
+  }
+
+  // Total screenshot bytes cap, oldest first.
+  let bytes = 0;
+  for (const e of telemetryIndex) if (!drop.has(e.id)) bytes += e.screenshot_bytes || 0;
+  if (bytes > TELEMETRY_LIMITS.maxShotBytesTotal) {
+    const target = Math.floor(TELEMETRY_LIMITS.maxShotBytesTotal * 0.9);
+    for (let i = 0; i < telemetryIndex.length && bytes > target; i += 1) {
+      const e = telemetryIndex[i];
+      if (drop.has(e.id)) continue;
+      drop.add(e.id);
+      bytes -= e.screenshot_bytes || 0;
+    }
+  }
+
+  return drop;
+}
+
+async function enforceRetention() {
+  if (!telemetryReady) return;
+  const drop = selectForEviction();
+  if (drop.size === 0) return;
+
+  for (const e of telemetryIndex) {
+    if (drop.has(e.id) && e.screenshot) {
+      await fsp.unlink(shotPathFor(e.screenshot)).catch(() => {});
+    }
+  }
+
+  const keep = telemetryIndex.filter((e) => !drop.has(e.id));
+  telemetryIndex.length = 0;
+  telemetryIndex.push(...keep);
+  const keepIds = new Set(keep.map((e) => e.id));
+
+  try {
+    const { size } = await fsp.stat(TELEMETRY_LOG_PATH);
+    const lines = readLogTail(size).split('\n');
+    const out = [];
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const rec = JSON.parse(line);
+        if (rec && keepIds.has(rec.id)) out.push(line);
+      } catch { /* drop unparseable line */ }
+    }
+    await fsp.writeFile(TELEMETRY_TMP_PATH, out.length ? `${out.join('\n')}\n` : '');
+    await fsp.rename(TELEMETRY_TMP_PATH, TELEMETRY_LOG_PATH);
+    console.log(`[telemetry] pruned ${drop.size} report(s); ${keep.length} retained`);
+  } catch (err) {
+    console.warn(`[telemetry] prune failed: ${err.message}`);
+  }
+}
+
+async function storeTelemetryReport(record, shotBuf) {
+  return enqueueTelemetryWrite(async () => {
+    if (record.screenshot && shotBuf) {
+      let name = record.screenshot;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          await fsp.writeFile(shotPathFor(name), shotBuf, { flag: 'wx', mode: 0o600 });
+          break;
+        } catch (err) {
+          if (err.code !== 'EEXIST' || attempt === 4) throw err;
+          name = name.replace(/\.png$/, `-${crypto.randomBytes(2).toString('hex')}.png`);
+        }
+      }
+      record.screenshot = name;
+    }
+
+    try {
+      await fsp.appendFile(TELEMETRY_LOG_PATH, `${JSON.stringify(record)}\n`);
+    } catch (err) {
+      if (record.screenshot) await fsp.unlink(shotPathFor(record.screenshot)).catch(() => {});
+      throw err;
+    }
+
+    telemetryIndex.push(indexEntry(record));
+    await enforceRetention();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry: middleware
+// ---------------------------------------------------------------------------
+const telemetryJsonParser = express.json({ limit: TELEMETRY_LIMITS.bodyLimit });
+
+function telemetryRateLimit(req, res, next) {
+  // Runs BEFORE the body parser so a flood of 1 mb bodies is rejected cheaply.
+  const { allowed, retryAfter } = telemetryPostLimiter(clientIp(req));
+  if (allowed) return next();
+  res.set('Retry-After', String(retryAfter));
+  return res.status(429).json({ ok: false, error: 'rate_limited', retry_after_s: retryAfter });
+}
+
+function telemetryBody(req, res, next) {
+  if (!req.is('application/json')) {
+    return res.status(415).json({ ok: false, error: 'unsupported_media_type' });
+  }
+  telemetryJsonParser(req, res, (err) => {
+    if (!err) return next();
+    // body-parser puts a slice of the offending body in err.message — never
+    // forward it. Fixed strings only.
+    const status = err.type === 'entity.too.large' ? 413 : (err.status === 415 ? 415 : 400);
+    const error = status === 413 ? 'payload_too_large'
+      : status === 415 ? 'unsupported_media_type'
+        : 'invalid_json';
+    return res.status(status).json({ ok: false, error });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Endpoint: POST /api/telemetry — receive one opt-in diagnostics report
+// ---------------------------------------------------------------------------
+app.post(TELEMETRY_ROUTE, telemetryRateLimit, telemetryBody, async (req, res) => {
+  try {
+    if (!telemetryReady) {
+      return res.status(503).json({ ok: false, error: 'telemetry_unavailable' });
+    }
+
+    const v = validateTelemetryBody(req.body);
+    if (!v.ok) return res.status(v.status).json({ ok: false, error: v.error });
+
+    const shot = decodeScreenshot(v.screenshotB64);
+    if (shot.error) return res.status(shot.status).json({ ok: false, error: shot.error });
+
+    const id = crypto.randomUUID();
+    const nowMs = Date.now();
+    const ip = clientIp(req);
+    const ua = typeof req.headers['user-agent'] === 'string'
+      ? sanitiseString(req.headers['user-agent']).slice(0, 120)
+      : null;
+
+    const record = {
+      id,
+      received_at: new Date(nowMs).toISOString(),   // server clock; the client's is not trusted
+      ip_hash: hashIp(ip),
+      ip_trunc: truncateIp(ip),
+      user_agent: ua,
+      schema: TELEMETRY_SCHEMA,
+      device_id: v.deviceId,
+      sent_at_claimed: v.sentAt,
+      app: v.sections.app,
+      host: v.sections.host,
+      display: v.sections.display,
+      versions: v.sections.versions,
+      perf: v.sections.perf,
+      server: v.sections.server,
+      // The PNG is written as a FILE; only its name lands in the log line.
+      screenshot: shot.buf ? screenshotFileName(v.deviceId, id, nowMs) : null,
+      screenshot_bytes: shot.buf ? shot.buf.length : 0,
+    };
+
+    await storeTelemetryReport(record, shot.buf);
+
+    console.log(`[telemetry] accepted ${id} device=${v.deviceId.slice(0, 8)} ` +
+      `shot=${record.screenshot_bytes}B ip=${record.ip_trunc}`);
+    return res.json({ ok: true, id });
+  } catch (err) {
+    console.error(`[telemetry] report rejected: ${err.message}`);
+    return res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Endpoint: GET /api/telemetry/reports?limit=N — what actually arrived
+//
+// UNAUTHENTICATED: nginx proxies /api/ straight through, so anyone on the
+// internet can read this. It therefore exposes metadata ONLY — device_id,
+// timestamps, hardware model, display/driver/depth, library versions and
+// timings. Never the screenshots, never the raw `server` diagnostics blob,
+// never the IP (not even the hashed form), never the user agent. Anything
+// added here must pass the same test: harmless to a stranger.
+// ---------------------------------------------------------------------------
+app.get('/api/telemetry/reports', (req, res) => {
+  try {
+    const { allowed, retryAfter } = telemetryReadLimiter(clientIp(req));
+    if (!allowed) {
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ ok: false, error: 'rate_limited', retry_after_s: retryAfter });
+    }
+
+    let limit = TELEMETRY_LIMITS.defaultReadLimit;
+    const raw = req.query.limit;
+    if (typeof raw === 'string' && raw.length <= 8) {
+      const n = Number.parseInt(raw, 10);
+      if (Number.isFinite(n)) limit = Math.min(Math.max(n, 1), TELEMETRY_LIMITS.maxReadLimit);
+    }
+
+    const slice = telemetryIndex.slice(-limit).reverse();   // newest first
+    res.set('Cache-Control', 'no-store');
+    return res.json({
+      ok: true,
+      total: telemetryIndex.length,
+      count: slice.length,
+      limit,
+      reports: slice.map((e) => e.view),
+    });
+  } catch (err) {
+    console.error(`[telemetry] reports listing failed: ${err.message}`);
+    return res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
+initTelemetryStorage();
+
 // ---------------------------------------------------------------------------
 // Start server — begin listening immediately, fetch data in background
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
   console.log(`HamClock Reborn server running on http://localhost:${PORT}`);
+
+  // Test hook: HAMCLOCK_DISABLE_POLLING=1 keeps the upstream fetches from
+  // firing so the telemetry tests never touch the network. Unset in
+  // production, where this branch is exactly the original startup sequence.
+  if (process.env.HAMCLOCK_DISABLE_POLLING === '1') {
+    console.log('[startup] Background data fetches disabled (HAMCLOCK_DISABLE_POLLING=1)');
+    return;
+  }
+
   console.log('[startup] Beginning background data fetches...');
 
   // Phase 1: Solar + Bands (fastest, most important)

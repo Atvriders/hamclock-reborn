@@ -346,6 +346,50 @@ curl http://localhost:3013/api/health
 | `GET /api/solar/proxy/:type` | Proxy SDO images (aia193, aia304, aia171, hmi-mag, hmi-int) | 10 min | — |
 | `GET /api/status` | Data source load status and cache age | — | — |
 | `GET /api/health` | Server health check + cache status | — | — |
+| `POST /api/telemetry` | Receive one opt-in Pi 1 diagnostics report | — | — |
+| `GET /api/telemetry/reports?limit=N` | List received reports (metadata only) | no-store | — |
+
+### Pi 1 Diagnostics Reports
+
+This backend accepts the optional diagnostics reports sent by the [HamClock
+Pi1](https://github.com/Atvriders/hamclock-pi1) pygame client. The project has
+no ARMv6 hardware, so these reports are how real Pi 1 display drivers, colour
+depths, frame times, and MUF rasterize durations get measured at all.
+
+Reports are **only** sent when a Pi operator presses the report key and then
+confirms an on-screen dialog. Nothing is collected automatically, and this
+server never initiates contact with a Pi.
+
+**Where the data lands** (`server/data/telemetry/`, override with
+`HAMCLOCK_TELEMETRY_DIR`):
+
+- `reports.jsonl` — one JSON line per accepted report. Holds the metadata, the
+  Pi's own `/api/diagnostics` body, a salted **hash** of the sender IP and a
+  truncated `/24` form. The raw IP is never written.
+- `shots/*.png` — screenshots, written as files (mode `0600`) and referenced
+  from the log line by filename. The base64 never enters the log.
+- `ip-salt` — per-install random salt for the IP hash, mode `0600`.
+
+Storage is bounded: reports are capped per device and in total, screenshots
+orphaned by a crash are swept at startup, and the log is pruned oldest-first.
+
+**`GET /api/telemetry/reports` is unauthenticated**, because nginx proxies
+`/api/` straight through. It therefore exposes metadata only — report ID,
+timestamps, hardware, display, versions, timings. It never returns screenshots,
+the raw `server` diagnostics blob, the IP in any form, or the user agent.
+Anything added to that projection must stay harmless to a stranger.
+
+Ingest is hardened against abuse: 1 MB body cap, JSON-only, strict allow-list of
+top-level keys (unknown fields are rejected outright), schema pinning,
+screenshots validated as real PNGs by magic bytes, and per-IP rate limits on
+both the write and read routes. Relevant env vars:
+`HAMCLOCK_TELEMETRY_RATE_HOUR`, `HAMCLOCK_TELEMETRY_RATE_DAY`,
+`HAMCLOCK_TELEMETRY_MAX_PER_DEVICE`, `HAMCLOCK_TELEMETRY_MAX_REPORTS`.
+
+Note that a screenshot shows the operator's callsign in the header, so a report
+with one attached is not anonymous. The Pi client states this plainly in its
+confirm dialog before anything is sent; treat the screenshot folder as
+personally identifying data.
 
 ## Data Sources
 
