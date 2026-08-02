@@ -21,8 +21,22 @@ services:
     dns:
       - 8.8.8.8
       - 1.1.1.1
+    volumes:
+      # Diagnostics reports from Pi kiosks land in /app/data/telemetry
+      # (reports.jsonl + shots/). Without this they live only inside the
+      # container and are destroyed by the next `docker compose pull` or
+      # recreate — which is precisely when you are most likely to want the
+      # before-and-after measurements they contain.
+      #
+      # It also holds ip-salt, the per-install random salt used to hash
+      # submitter IPs. Losing that silently re-anonymises every future report
+      # under different hashes, so repeat submissions stop correlating.
+      - hamclock-telemetry:/app/data
     networks:
       - hamclock
+
+volumes:
+  hamclock-telemetry:
 
 networks:
   hamclock:
