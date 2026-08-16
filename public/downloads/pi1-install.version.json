@@ -1,8 +1,8 @@
 {
-  "built": "2026-08-10T06:25:04Z",
-  "commit": "32960e7",
+  "built": "2026-08-16T23:54:53Z",
+  "commit": "2126249",
   "installer": "https://hamclock-reborn.org/downloads/pi1-install.sh",
-  "sha256": "aead4f258584faeb0bd3771e8c824497ee4c25296e4cfdd0d776e2a929a6fb31",
-  "size": 410323,
-  "version": "1.0.3"
+  "sha256": "1b31397263b9b50651141f66d5bbc2bdf99d48a415600e0537c9a300a7e6b54d",
+  "size": 412976,
+  "version": "1.0.4"
 }
