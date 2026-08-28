@@ -3261,7 +3261,14 @@ class HamClockData:
     }
     _IMAGE_ENDPOINTS = {
         'solar-image': '/api/solar-image',
-        'muf-map': '/api/muf-map',
+        # ?fmt=png matters: without it the server falls back to serving the
+        # raw KC2G SVG while the rasterize is still running, and pygame cannot
+        # decode SVG. _fetch_binary treats any HTTP 200 as success, so those
+        # undecodable bytes were cached as a satisfied fetch and the key was
+        # not retried until the next 900 s cycle — 15 minutes of a blank MUF
+        # panel. With ?fmt=png the server answers PNG-or-503, and a 503 is a
+        # real failure that the retry backoff picks up within seconds.
+        'muf-map': '/api/muf-map?fmt=png',
         'enlil': '/api/enlil',
         'drap': '/api/drap',
         'real-drap': '/api/real-drap',
@@ -3358,6 +3365,32 @@ class HamClockData:
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
             self.errors[path] = '{}: {}'.format(type(e).__name__, e)
             return None
+
+    def mark_image_undecodable(self, key, retry_in=None):
+        """Report that key's cached bytes could not be decoded.
+
+        A 200 carrying a payload this client cannot render is a failed fetch in
+        every way that matters, but _fetch_binary cannot see that — only the
+        decoder can. Without this the key stays "satisfied" until the slow
+        cycle comes round again. Schedules a retry on the normal backoff.
+        """
+        try:
+            if key not in self._IMAGE_ENDPOINTS:
+                return
+            with self._lock:
+                streak = self.image_fail_streak.get(key, 0) + 1
+                self.image_fail_streak[key] = streak
+                if retry_in is None:
+                    idx = min(streak, len(self.IMAGE_RETRY_BACKOFF)) - 1
+                    retry_in = self.IMAGE_RETRY_BACKOFF[max(0, idx)]
+                self.image_next_due[key] = time.time() + retry_in
+                # Drop the bad payload so a stale-but-good surface is not
+                # rebuilt from it, and so "have we got bytes" stays honest.
+                imgs = dict(self.images)
+                imgs.pop(key, None)
+                self.images = imgs
+        except Exception:
+            pass
 
     def refresh_data(self):
         """Fetch the 4 JSON endpoints synchronously."""
@@ -5722,6 +5755,17 @@ def _get_cached_image(data, key, image_cache, image_cache_ts):
             image_cache_ts[key] = ts
             _decode_failed_ts.pop(key, None)
         else:
+            # First time we have seen THIS payload fail. Tell the data layer,
+            # so the key is refetched on the retry backoff instead of sitting
+            # satisfied until the next slow cycle: the decoder is the only
+            # part of the system that can tell a useless 200 from a good one.
+            if _decode_failed_ts.get(key) != ts:
+                try:
+                    data.mark_image_undecodable(key)
+                except AttributeError:
+                    pass        # older data layer; nothing to report to
+                except Exception:
+                    pass
             _decode_failed_ts[key] = ts
     return image_cache.get(key)
 
@@ -7302,7 +7346,75 @@ def _render_recovering_overlay(screen, fonts, theme):
         pass
 
 
-def _init_display():
+#: Ceiling on how many pixels we will render per frame. Measured: the draw
+#: cost of the text-heavy panels scales SUB-linearly with area (2.70x the
+#: pixels costs 2.03x the time, because most of it is cached-glyph blitting
+#: rather than fills). A Pi 1B reporting a 68 ms p99 at 800x600 therefore lands
+#: near 140 ms at 1440x900 — one slow frame per data refresh, roughly once a
+#: minute, while the once-a-second clock path stays at 0.19 ms. That is a good
+#: trade for a display read across a room. A 4K panel would be 17x the pixels
+#: and is not, hence the cap: above it we fall back to the largest mode that
+#: keeps the panel's own aspect ratio.
+DISPLAY_PIXEL_BUDGET = 2_200_000        # ~1920x1080
+
+#: Tolerance when deciding whether a mode "matches" the panel's shape.
+_ASPECT_TOL = 0.03
+
+
+def _choose_display_mode(native, modes, budget=DISPLAY_PIXEL_BUDGET,
+                         requested=None):
+    """Pick the framebuffer to render into.
+
+    Native is strongly preferred: rendering at the panel's own resolution means
+    NO scaling at all. The alternative is what this Pi was doing — asking for
+    720x450, having KMS snap it to the nearest real mode (800x600), and letting
+    the panel stretch that 4:3 image across a 16:10 1440x900 screen at a
+    fractional 1.8x. Every source pixel then lands on 1.8 destination pixels,
+    which is why the text looked chewed no matter how the fonts were tuned;
+    antialiasing cannot rescue a non-integer upscale.
+
+    `requested` ("1280x800") wins if it is offered. Otherwise native, if it
+    fits the budget. Otherwise the largest same-shape mode that does — a
+    smaller mode with the right aspect still scales, but at least it does not
+    distort, and an integer fraction of native scales cleanly.
+
+    Returns (w, h), or None to mean "let SDL decide" when we know nothing.
+    """
+    def ok(m):
+        try:
+            return int(m[0]) > 0 and int(m[1]) > 0
+        except Exception:
+            return False
+
+    cands = [(int(w), int(h)) for (w, h) in (modes or []) if ok((w, h))]
+
+    if requested:
+        try:
+            rw, rh = (int(v) for v in str(requested).lower().split('x'))
+            if rw > 0 and rh > 0 and (not cands or (rw, rh) in cands):
+                return (rw, rh)
+        except Exception:
+            pass
+
+    if not ok(native or (0, 0)):
+        return None
+    nw, nh = int(native[0]), int(native[1])
+    if nw * nh <= budget:
+        return (nw, nh)
+
+    target = nw / float(nh)
+    same_shape = [m for m in cands
+                  if abs(m[0] / float(m[1]) - target) <= _ASPECT_TOL
+                  and m[0] * m[1] <= budget]
+    if same_shape:
+        return max(same_shape, key=lambda m: m[0] * m[1])
+    under = [m for m in cands if m[0] * m[1] <= budget]
+    if under:
+        return max(under, key=lambda m: m[0] * m[1])
+    return (nw, nh)
+
+
+def _init_display(requested_mode=None):
     """SDL driver ladder. Bookworm SDL2 may lack fbcon (Phase 0 risk).
     Try fbcon -> kmsdrm -> x11 -> dummy; honor a pre-set SDL_VIDEODRIVER
     first if it's in the ladder. Logs every attempt to stderr so
@@ -7323,10 +7435,29 @@ def _init_display():
             pass
         try:
             pygame.display.init()
-            scr = pygame.display.set_mode(
-                (SCREEN_W, SCREEN_H), pygame.FULLSCREEN)
-            print('[display] SDL driver=%s mode=%s'
-                  % (drv, scr.get_size()), file=sys.stderr)
+            # Ask the driver what the panel actually is, rather than asking for
+            # a size no connector offers and letting it snap to the nearest.
+            native, modes = None, []
+            try:
+                info = pygame.display.Info()
+                if info.current_w > 0 and info.current_h > 0:
+                    native = (info.current_w, info.current_h)
+            except Exception:
+                pass
+            try:
+                listed = pygame.display.list_modes()
+                if listed and listed != -1:
+                    modes = list(listed)
+            except Exception:
+                pass
+            want = _choose_display_mode(native, modes,
+                                        requested=requested_mode)
+            if want is None:
+                want = (SCREEN_W, SCREEN_H)
+            scr = pygame.display.set_mode(want, pygame.FULLSCREEN)
+            print('[display] SDL driver=%s native=%s asked=%s got=%s modes=%d'
+                  % (drv, native, want, scr.get_size(), len(modes)),
+                  file=sys.stderr)
             return scr
         except Exception as e:
             print('[display] %s failed: %s' % (drv, e), file=sys.stderr)
@@ -7352,7 +7483,20 @@ def main(argv=None):
     # working set is dominated by SDL surfaces, not Python objects.
     gc.set_threshold(50_000, 10, 10)
 
-    screen = _init_display()
+    # Read the display override before initialising, but do NOT go through
+    # DEFAULT_SETTINGS: load_settings is contractually required to return
+    # exactly its four keys on a fresh install (the wizard, --setup-cli and the
+    # settings tests all round-trip that shape). An absent key just means
+    # "choose for me", which is the default behaviour anyway.
+    _mode_pref = None
+    try:
+        _mode_pref = (load_settings(SETTINGS_PATH) or {}).get('display_mode')
+    except Exception:
+        _mode_pref = None
+    if _mode_pref in ('', 'auto', 'native'):
+        _mode_pref = None
+
+    screen = _init_display(requested_mode=_mode_pref)
     pygame.display.set_caption('HamClock Lite')
     try:
         pygame.mouse.set_visible(True)
@@ -9258,7 +9402,7 @@ done
 # text itself. scripts/sync_installers.py stamps it from the repo VERSION file
 # and --check fails the build if the two drift.
 sudo tee "$INSTALL_DIR/VERSION" > /dev/null << 'HCVERSIONTXT'
-1.0.4
+1.0.6
 HCVERSIONTXT
 sudo chown root:root "$INSTALL_DIR/VERSION"
 sudo chmod 0644 "$INSTALL_DIR/VERSION"
