@@ -31,10 +31,17 @@ L.Icon.Default.mergeOptions({
 type MapStyle = 'dark' | 'satellite' | 'terrain' | 'light';
 
 const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoom: number; attribution?: string }> = {
+  // CARTO began requiring an API key for these basemaps. The tiles still
+  // return HTTP 200, so nothing errors — they are just images with
+  // "API KEY REQUIRED / carto.com/basemaps/apikey" stamped diagonally across
+  // them, which is what the deployed map had been drawing under every DX spot.
+  // (A watermark tile decodes to ~16 distinct colours; a real one to 200+.)
+  // Esri's dark canvas is keyless, dark enough for this palette, and already
+  // trusted here — 'satellite' below uses the same host.
   dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png',
-    subdomains: 'abcd',
-    maxZoom: 19,
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    maxZoom: 16,
+    attribution: 'Esri',
   },
   satellite: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -46,9 +53,10 @@ const MAP_TILE_URLS: Record<MapStyle, { url: string; subdomains?: string; maxZoo
     maxZoom: 17,
   },
   light: {
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-    subdomains: 'abcd',
-    maxZoom: 19,
+    // Same story as 'dark' — keyless replacement.
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    maxZoom: 16,
+    attribution: 'Esri',
   },
 };
 
@@ -1091,6 +1099,10 @@ function LayerControlPanel({
         borderRadius: 8,
         padding: collapsed ? '6px 10px' : '10px 14px',
         minWidth: collapsed ? 'auto' : 170,
+        // Never let the control outgrow a phone-sized map.
+        maxWidth: 'calc(100% - 20px)',
+        maxHeight: 'calc(100% - 20px)',
+        overflowY: 'auto',
         boxShadow: '0 4px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)',
         color: '#eee',
         fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
@@ -1171,6 +1183,55 @@ function LayerControlPanel({
   );
 }
 
+// ── Narrow-layout framing ─────────────────────────────────────────
+// At zoom 2 the world is 1024px wide. The bench hero is wide enough to show
+// most of it, but a phone map is ~300px — a 30% slice of the world, centred on
+// longitude 0, which means the operator's OWN station is off-screen. Below the
+// bench breakpoint, frame the map on the QTH instead and allow one more step of
+// zoom-out so the whole world can be reached.
+//
+// Only ever runs under (max-width: 1365px): the >= 1366px bench keeps the
+// original center={[20, 0]} zoom={2} framing exactly as designed.
+function NarrowLayoutView({
+  userLat,
+  userLng,
+}: {
+  userLat?: number | null;
+  userLng?: number | null;
+}) {
+  const map = useMap();
+  // Frame once per entry into the narrow layout — never fight a user who pans.
+  const framedRef = useRef(false);
+
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 1365px)');
+
+    const apply = () => {
+      if (!mql.matches) {
+        framedRef.current = false;
+        map.setMinZoom(2);
+        return;
+      }
+      map.setMinZoom(1);
+      if (framedRef.current) return;
+      if (userLat == null || userLng == null) return;
+      framedRef.current = true;
+      map.setView([userLat, userLng], map.getZoom(), { animate: false });
+    };
+
+    apply();
+
+    if (mql.addEventListener) {
+      mql.addEventListener('change', apply);
+      return () => mql.removeEventListener('change', apply);
+    }
+    mql.addListener(apply);
+    return () => mql.removeListener(apply);
+  }, [map, userLat, userLng]);
+
+  return null;
+}
+
 // ── Main component ────────────────────────────────────────────────
 export default function WorldMap({
   dxSpots,
@@ -1183,8 +1244,43 @@ export default function WorldMap({
   selectedBand,
 }: WorldMapProps) {
   const mapRef = useRef<L.Map | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
   const [mapStyle, setMapStyle] = useState<MapStyle>('dark');
+
+  // Responsive layouts resize the map host without a window resize event
+  // (grid reflow, orientation change, the address bar collapsing on a phone).
+  // Leaflet caches its container size, so it must be told, or the tiles end up
+  // rendered for the wrong box — or for a box that was 0px tall at mount.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    let frame = 0;
+    const kick = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        mapRef.current?.invalidateSize({ animate: false, pan: false });
+      });
+    };
+
+    kick();
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(kick);
+      observer.observe(host);
+    }
+    window.addEventListener('resize', kick);
+    window.addEventListener('orientationchange', kick);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', kick);
+      window.removeEventListener('orientationchange', kick);
+    };
+  }, []);
 
   // Auto-enable MUF layer when a band is selected
   useEffect(() => {
@@ -1201,7 +1297,10 @@ export default function WorldMap({
   }, []);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      ref={hostRef}
+      style={{ width: '100%', height: '100%', minHeight: 220, position: 'relative' }}
+    >
       <style>{`
         /* Strip default tooltip chrome for our custom labels */
         .grid-label {
@@ -1267,7 +1366,9 @@ export default function WorldMap({
               color: '#e0e0e0',
               textAlign: 'center',
               boxShadow: `0 0 12px rgba(0,0,0,0.5), 0 0 6px ${BAND_COLORS[selectedBand] || '#00d4ff'}44`,
-              whiteSpace: 'nowrap',
+              // Wraps on narrow maps instead of running off both edges.
+              maxWidth: 'calc(100% - 20px)',
+              whiteSpace: 'normal',
             }}
           >
             <span style={{ color: BAND_COLORS[selectedBand] || '#00d4ff', fontWeight: 700 }}>
@@ -1344,6 +1445,9 @@ export default function WorldMap({
         style={{ width: '100%', height: '100%' }}
         ref={mapRef}
       >
+        {/* Narrow layouts frame on the operator's QTH, not longitude 0 */}
+        <NarrowLayoutView userLat={userLat} userLng={userLng} />
+
         {/* Dynamic base tile layer */}
         <BaseTileLayer mapStyle={mapStyle} />
 

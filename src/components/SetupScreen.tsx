@@ -387,9 +387,12 @@ const overlayStyle: React.CSSProperties = {
   inset: 0,
   zIndex: 9999,
   background: '#0a0e14',
+  // `display:flex` + `margin:auto` on the card (rather than align-items:center)
+  // centres the card while still letting it scroll into view on short screens
+  // — a landscape phone is only 390px tall.
   display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
+  overflow: 'auto',
+  padding: '16px',
   fontFamily: "'Courier New', Consolas, monospace",
 };
 
@@ -397,9 +400,11 @@ const cardStyle: React.CSSProperties = {
   background: '#0d1117',
   border: '1px solid rgba(255, 255, 255, 0.15)',
   borderRadius: 12,
-  padding: '48px 44px 36px',
+  padding: 'clamp(22px, 6vw, 48px) clamp(18px, 5vw, 44px) clamp(18px, 4vw, 36px)',
   width: 400,
-  maxWidth: '90vw',
+  maxWidth: '100%',
+  margin: 'auto',
+  flexShrink: 0,
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
@@ -407,7 +412,7 @@ const cardStyle: React.CSSProperties = {
 };
 
 const titleStyle: React.CSSProperties = {
-  fontSize: 28,
+  fontSize: 'clamp(20px, 6vw, 28px)',
   fontWeight: 'bold',
   letterSpacing: 6,
   color: '#ffffff',
@@ -436,6 +441,7 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
+  minHeight: 44,
   padding: '12px 16px',
   fontSize: 26,
   fontFamily: "'Courier New', Consolas, monospace",
@@ -476,6 +482,7 @@ const coordStyle: React.CSSProperties = {
 const startButtonStyle: React.CSSProperties = {
   marginTop: 28,
   width: '100%',
+  minHeight: 44,
   padding: '14px 0',
   fontSize: 16,
   fontWeight: 'bold',
@@ -493,6 +500,7 @@ const startButtonStyle: React.CSSProperties = {
 
 const skipButtonStyle: React.CSSProperties = {
   marginTop: 12,
+  minHeight: 44,
   padding: '8px 16px',
   fontSize: 11,
   fontFamily: "'Courier New', Consolas, monospace",

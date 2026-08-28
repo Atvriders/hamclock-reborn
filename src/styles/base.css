@@ -19,10 +19,55 @@
   padding: 0;
 }
 
-html, body, #root {
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
+/* -------- Viewport shell --------
+ * The wall display (>= 1366px) keeps its original contract: exactly one
+ * screen, zero scroll. Below the bench breakpoint the dashboard is taller
+ * than the viewport by design, so the page scrolls vertically — never
+ * horizontally. `overflow: hidden` is therefore conditional, not global.
+ */
+html {
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (min-width: 1366px) {
+  html,
+  body,
+  #root {
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+  }
+}
+
+/* Slim, on-brand scrollbars — panels that can outgrow their bay scroll
+ * instead of silently clipping their last rows. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ob-muted) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ob-muted);
+  border-radius: 3px;
 }
 
 img, picture, svg, video, canvas {

@@ -1,16 +1,27 @@
 /* Operator's Bench — chassis grid layout.
- * 100% viewport, zero scroll, fluid 1366→1920→3440.
  *
- * Region map:
+ * Three tiers, one DOM. The tier is chosen purely in CSS via grid-template-areas,
+ * so nothing is conditionally rendered and nothing is ever hidden.
+ *
+ *   Tier 1 — BENCH        >= 1366px   the reference wall-display design, unchanged
+ *   Tier 2 — TWO COLUMN   768–1365px  hero map full-bleed, panels paired
+ *   Tier 3 — STACKED      < 768px     one column, map first
+ *
+ * Bench region map (unchanged reference):
  *   head  head  head     (44px — chassis header bar)
  *   lt-1  hero  rt-1     (42vh — solar / world map / band matrix)
- *   lt-2  inst  rt-2     (1fr   — beacon clock / 6 instrument tiles / dx stream)
+ *   lt-2  inst  rt-2     (1fr   — beacon clock / instrument tiles / dx stream)
  *   rail  rail  rail     (40px — band pills bottom)
+ *
+ * Instrument row: NEVER a hard-coded column count. `repeat(auto-fit, minmax(...))`
+ * means a seventh or eighth tile lays itself out instead of falling off the edge.
  */
+
+/* ══ Tier 1 — Operator's Bench (>= 1366px) ═══════════════════════════ */
 
 .ob-chassis {
   display: grid;
-  width: 100vw;
+  width: 100%;
   height: 100vh;
   background: var(--ob-bg);
   grid-template-columns: clamp(260px, 18vw, 380px) 1fr clamp(260px, 18vw, 380px);
@@ -26,17 +37,32 @@
 
 .ob-area-head { grid-area: head; }
 .ob-area-lt-1 { grid-area: lt-1; }   /* SOLAR */
-.ob-area-lt-2 { grid-area: lt-2; }   /* BEACON CLOCK (placeholder until Pass 2) */
+.ob-area-lt-2 { grid-area: lt-2; }   /* BEACON CLOCK */
 .ob-area-hero { grid-area: hero; }   /* WORLD MAP */
 .ob-area-rt-1 { grid-area: rt-1; }   /* BAND MATRIX */
 .ob-area-rt-2 { grid-area: rt-2; }   /* DX STREAM */
+.ob-area-rail { grid-area: rail; }   /* BAND PILLS BOTTOM */
+
+/* Instrument row — self-sizing. No hard-coded column count anywhere.
+ *
+ * `auto-fit` fits as many >=190px tracks as the bay allows and spreads the
+ * tiles evenly across them; a 7th or 8th tile takes its own track instead of
+ * falling off the edge. 190px is the legibility floor — narrower than that and
+ * the POTA/SOTA activator column collapses to nothing.
+ *
+ * `grid-auto-rows: minmax(0, 1fr)` is the other half of the fix: when the
+ * tiles DO wrap, every row is an equal share of the bay, so a second row is
+ * fully visible instead of being clipped away by the bay's overflow.
+ *
+ * At 1920 this yields the reference 6 x 1 row; at 1440 it yields 4 x 2 rows,
+ * both of them entirely on screen. */
 .ob-area-inst {
   grid-area: inst;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
   gap: var(--ob-space-2);
 }
-.ob-area-rail { grid-area: rail; }   /* BAND PILLS BOTTOM */
 
 /* Every direct grid child clamps to 0 so children obey instead of bursting. */
 .ob-chassis > * {
@@ -45,44 +71,187 @@
   overflow: hidden;
 }
 
-/* The bottom-row instrument tiles also clamp. */
+/* The instrument tiles also clamp. */
 .ob-inst-tile {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
-/* Ultrawide ≥2400px — widen rails, 7 instrument tiles. */
+/* The map always gets real pixels — a Leaflet map in an auto-height row can
+ * otherwise resolve to zero and render nothing at all. The host inherits the
+ * hero's height (panels.css: .ob-map-host { height: 100% }); the min-height is
+ * the floor that guarantees it is never zero. */
+.ob-area-hero {
+  min-height: 220px;
+}
+.ob-chassis .ob-map-host {
+  min-height: 220px;
+}
+
+/* Ultrawide >= 2400px — widen the rails. The instrument row needs no rule:
+ * auto-fit already spreads the tiles across the extra width. */
 @media (min-width: 2400px) {
   .ob-chassis {
     grid-template-columns: clamp(320px, 17vw, 440px) 1fr clamp(320px, 17vw, 440px);
   }
-  .ob-area-inst {
-    grid-template-columns: repeat(7, 1fr);
-  }
 }
 
-/* 1366 narrow desktop — tighter rails, 4 instrument tiles. */
-@media (max-width: 1480px) {
+/* 1366–1480 narrow bench — tighter rails so the hero keeps its width. */
+@media (min-width: 1366px) and (max-width: 1480px) {
   .ob-chassis {
     grid-template-columns: clamp(240px, 19vw, 300px) 1fr clamp(240px, 19vw, 300px);
   }
-  .ob-area-inst {
-    grid-template-columns: repeat(4, 1fr);
+}
+
+/* Touch-driven bench (a touchscreen wall panel / iPad Pro landscape):
+ * give the header and pill rail enough height for 44px targets.
+ * Pointer-fine desktops are untouched. */
+@media (pointer: coarse) and (min-width: 1366px) {
+  .ob-chassis {
+    grid-template-rows: 52px clamp(40vh, 42vh, 46vh) 1fr 56px;
   }
 }
 
-/* Mobile splash — Pass 2 will rework. */
+/* ══ Tier 2 — Two column (768–1365px) ════════════════════════════════
+ * Three rails do not work at tablet width. The map goes full-bleed at the
+ * top (it is the thing worth keeping large), conditions pair up beneath it,
+ * the instrument bay wraps, and the long lists go last.
+ * Vertical scrolling is correct here — twelve panels do not fit on a tablet.
+ */
+
+@media (max-width: 1365px) {
+  .ob-chassis {
+    width: 100%;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: none;
+    grid-auto-rows: auto;
+    grid-template-areas:
+      "head head"
+      "hero hero"
+      "lt-1 rt-1"
+      "rail rail"
+      "inst inst"
+      "lt-2 rt-2";
+    gap: var(--ob-space-2);
+    padding: var(--ob-space-2);
+    padding-bottom: calc(var(--ob-space-2) + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Panels size to their content here; clipping them would hide data. */
+  .ob-chassis > * {
+    overflow: visible;
+  }
+
+  .ob-inst-tile {
+    overflow: visible;
+  }
+
+  /* The map is the one panel that SHOULD clip — its overlays are pinned to
+   * its own edges and must not spill onto the page. */
+  .ob-area-hero {
+    overflow: hidden;
+  }
+
+  .ob-area-head {
+    min-height: 52px;
+  }
+
+  /* The map keeps a real, generous height on every stacked layout. */
+  .ob-area-hero {
+    height: clamp(320px, 46vh, 620px);
+    min-height: 320px;
+  }
+  .ob-chassis .ob-map-host {
+    min-height: 320px;
+  }
+
+  .ob-area-lt-1,
+  .ob-area-rt-1,
+  .ob-area-lt-2,
+  .ob-area-rt-2 {
+    min-height: 240px;
+  }
+
+  .ob-area-rail {
+    min-height: 52px;
+  }
+
+  /* 250px floor keeps the wrap tidy: 2-up at 768, 3-up at ~1024,
+   * 4-up at ~1280 — instead of a five-wide row with a single orphan. */
+  .ob-area-inst {
+    grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+    grid-auto-rows: minmax(190px, auto);
+  }
+}
+
+/* ══ Tier 3 — Stacked single column (< 768px) ════════════════════════
+ * Reading order: map → solar → bands → band pills → instruments →
+ * beacon schedule → DX stream. The two long lists come last on purpose.
+ */
+
+@media (max-width: 767px) {
+  .ob-chassis {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "head"
+      "hero"
+      "lt-1"
+      "rt-1"
+      "rail"
+      "inst"
+      "lt-2"
+      "rt-2";
+  }
+
+  .ob-area-hero {
+    height: clamp(300px, 52vh, 480px);
+    min-height: 300px;
+  }
+  .ob-chassis .ob-map-host {
+    min-height: 300px;
+  }
+
+  .ob-area-lt-1,
+  .ob-area-rt-1,
+  .ob-area-lt-2,
+  .ob-area-rt-2 {
+    min-height: 0;
+  }
+
+  .ob-area-inst {
+    grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+    grid-auto-rows: minmax(150px, auto);
+  }
+}
+
+/* Short landscape phones: the map should not eat the whole screen. */
+@media (max-width: 1365px) and (max-height: 520px) and (orientation: landscape) {
+  .ob-area-hero {
+    height: 300px;
+    min-height: 300px;
+  }
+  .ob-chassis .ob-map-host {
+    min-height: 300px;
+  }
+}
+
+/* ══ Fault splash — error boundary only ══════════════════════════════ */
+
 .ob-mobile-splash {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100vh;
-  width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
   background: var(--ob-bg);
   color: var(--ob-fg);
-  padding: var(--ob-space-6);
+  padding: var(--ob-space-6) var(--ob-space-4);
   text-align: center;
   gap: var(--ob-space-4);
 }
@@ -98,7 +267,7 @@
 .ob-mobile-splash__msg {
   font-size: var(--ob-text-md);
   color: var(--ob-fg);
-  max-width: 32ch;
+  max-width: 40ch;
   line-height: 1.4;
 }
 

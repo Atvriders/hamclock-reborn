@@ -2,7 +2,6 @@ import React, { useState, useCallback, useMemo } from 'react';
 import 'leaflet/dist/leaflet.css';
 import { useStore as useAppStore } from './hooks/useStore';
 import { useDataFetch } from './hooks/useDataFetch';
-import { useIsMobile } from './hooks/useIsMobile';
 import { callsignPrefixToLocation, latLngToGrid } from './utils/hamradio';
 import SetupScreen from './components/SetupScreen';
 import Header from './components/Panels/Header';
@@ -91,7 +90,6 @@ function AppInner() {
   const potaSpots = useAppStore((s) => s.potaSpots);
   const sotaSpots = useAppStore((s) => s.sotaSpots);
   const satelliteTles = useAppStore((s) => s.satelliteTles);
-  const isMobile = useIsMobile(1366);
 
   // Has location once the user has set callsign (and we've stored coords).
   // Default coords in the store are 40,-74 — only treat as "located"
@@ -138,19 +136,10 @@ function AppInner() {
       .map(([band]) => band);
   }, [bands]);
 
-  // Mobile: deferred to Pass 2 — show splash explaining desktop requirement.
-  if (isMobile) {
-    return (
-      <div className="ob-mobile-splash">
-        <div className="ob-mobile-splash__brand">HAMCLOCK REBORN</div>
-        <div className="ob-mobile-splash__msg">
-          Open on a desktop monitor (1366px or wider) for the full Operator's Bench layout.
-        </div>
-        <div className="ob-mobile-splash__legend">Mobile layout — Pass 2</div>
-      </div>
-    );
-  }
-
+  // DOM order is the STACKED reading order: header, world map, solar,
+  // band matrix, band pills, instruments, beacon schedule, DX stream.
+  // The >=1366px bench re-places every one of these via grid-template-areas,
+  // so its visual layout is unaffected by the source order.
   return (
     <div className="ob-chassis">
       <Header
@@ -159,10 +148,6 @@ function AppInner() {
         onCallsignChange={handleCallsignChange}
         gridSquare={gridSquare}
       />
-
-      <SolarPanel className="ob-area-lt-1" data={solar} />
-
-      <BeaconClockPanel className="ob-area-lt-2" />
 
       <div className="ob-area-hero ob-panel ob-panel--crosshair">
         <div className="ob-map-host">
@@ -179,9 +164,17 @@ function AppInner() {
         </div>
       </div>
 
+      <SolarPanel className="ob-area-lt-1" data={solar} />
+
       <BandPanel className="ob-area-rt-1" data={bands} />
 
-      <DXPanel className="ob-area-rt-2" spots={dxSpots} />
+      <PropagationBar
+        className="ob-area-rail"
+        userLat={userLat}
+        userLng={userLng}
+        bandsOpen={bandsOpen}
+        onBandSelect={setSelectedBand}
+      />
 
       <div className="ob-area-inst">
         <GreylineDxTile userLat={userLat} userLng={userLng} />
@@ -202,13 +195,9 @@ function AppInner() {
         <XRayTile />
       </div>
 
-      <PropagationBar
-        className="ob-area-rail"
-        userLat={userLat}
-        userLng={userLng}
-        bandsOpen={bandsOpen}
-        onBandSelect={setSelectedBand}
-      />
+      <BeaconClockPanel className="ob-area-lt-2" />
+
+      <DXPanel className="ob-area-rt-2" spots={dxSpots} />
     </div>
   );
 }

@@ -140,6 +140,9 @@
   height: 100%;
   padding: var(--ob-space-3) var(--ob-space-3);
   gap: var(--ob-space-2);
+  /* A panel whose content outgrows its bay scrolls; it never silently clips
+   * its last rows or its right-hand column. Scrollbars are 6px (base.css). */
+  overflow: auto;
 }
 .ob-panel__head {
   display: flex;
@@ -830,4 +833,189 @@
   font-feature-settings: 'tnum' 1;
   letter-spacing: 0.04em;
   flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+ * RESPONSIVE — panel primitives below the bench breakpoint
+ * The bench (>= 1366px, pointer: fine) is untouched by everything below.
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* -------- Tier 2 + 3 (< 1366px): panels size to content -------- */
+@media (max-width: 1365px) {
+  /* Auto-height panels: the body grows with its content instead of
+   * scrolling inside a fixed bay. */
+  .ob-panel__body {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  /* Header wraps into as many lines as it needs instead of squeezing. */
+  .ob-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    height: auto;
+    min-height: 52px;
+    padding: var(--ob-space-2) var(--ob-space-3);
+    column-gap: var(--ob-space-3);
+    row-gap: var(--ob-space-2);
+  }
+  .ob-header__left,
+  .ob-header__center,
+  .ob-header__right {
+    flex: 0 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .ob-header__center {
+    justify-content: flex-start;
+  }
+
+  /* The band-pill rail wraps rather than crushing nine pills onto one line. */
+  .ob-rail {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 52px;
+    align-items: center;
+    padding: var(--ob-space-2) var(--ob-space-3);
+    row-gap: var(--ob-space-2);
+  }
+  .ob-rail__pills {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .ob-rail__status {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  /* Instrument tiles are content-height here, so let their arcs breathe. */
+  .ob-pass-arc__svg {
+    max-height: 96px;
+  }
+}
+
+/* -------- Tier 3 (< 768px): single column -------- */
+@media (max-width: 767px) {
+  .ob-header__left {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .ob-header__center {
+    flex: 0 1 auto;
+  }
+  .ob-header__right {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
+
+  /* A full-width DX panel has room for all five columns side by side.
+   * Every track is minmax(0, …) so a long callsign can never push the
+   * spotter column out past the panel edge. */
+  .ob-dx-row,
+  .ob-dx-headings {
+    grid-template-columns:
+      minmax(0, 5ch) minmax(0, 10ch) minmax(0, 1fr)
+      minmax(0, 5ch) minmax(0, 7ch);
+  }
+  .ob-dx-row__spotter,
+  .ob-dx-row__call {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* -------- Phone-width DX stream: two lines per spot --------
+ *
+ * Five columns do not fit on a phone. Below ~560px the fixed TIME/MODE/SPOTTER
+ * tracks eat the whole row and the flexible DX column resolves to ZERO — the
+ * callsign, the single most important field in the panel, disappears entirely.
+ * (Measured at 320px: grid-template-columns resolved the DX track to 0px.)
+ *
+ * So the row folds into two lines instead of five columns. Nothing is dropped,
+ * nothing is ellipsised, and the callsign gets the widest cell on the row:
+ *
+ *   TIME │ CALL          FREQ
+ *        │ MODE       SPOTTER
+ *
+ * The headings row folds identically, so every value still sits under its label.
+ */
+@media (max-width: 560px) {
+  .ob-dx-row,
+  .ob-dx-headings {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+    grid-template-areas:
+      "dx-time dx-call dx-freq"
+      "dx-time dx-mode dx-spot";
+    column-gap: var(--ob-space-2);
+    row-gap: 2px;
+    align-items: center;
+  }
+
+  .ob-dx-row__time { grid-area: dx-time; }
+  .ob-dx-row__call { grid-area: dx-call; text-align: left; }
+  .ob-dx-row__freq { grid-area: dx-freq; text-align: right; }
+  .ob-dx-row__mode { grid-area: dx-mode; }
+  .ob-dx-row__spotter { grid-area: dx-spot; text-align: right; }
+
+  /* Headings are five bare <span>s in DOM order: Time, Freq, DX, Mode, Spotter. */
+  .ob-dx-headings span:nth-child(1) { grid-area: dx-time; }
+  .ob-dx-headings span:nth-child(2) { grid-area: dx-freq; text-align: right; }
+  .ob-dx-headings span:nth-child(3) { grid-area: dx-call; text-align: left; }
+  .ob-dx-headings span:nth-child(4) { grid-area: dx-mode; }
+  .ob-dx-headings span:nth-child(5) { grid-area: dx-spot; text-align: right; }
+
+  /* Each value now owns half a line — nothing needs truncating. */
+  .ob-dx-row__call,
+  .ob-dx-row__spotter,
+  .ob-dx-row__freq {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* -------- Touch targets — coarse pointers get >= 44px -------- */
+@media (pointer: coarse) {
+  .ob-pill {
+    min-height: 44px;
+    padding: var(--ob-space-2) var(--ob-space-3);
+    gap: var(--ob-space-2);
+  }
+
+  /* Any button anywhere in the chassis, including the map's layer controls. */
+  .ob-chassis button,
+  .ob-mobile-splash button {
+    min-height: 44px;
+  }
+  .ob-area-hero button,
+  .ob-area-hero label {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  /* Callsign is a click-to-edit control in the header. */
+  .ob-header__callsign {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .ob-header__callsign-input {
+    min-height: 44px;
+    padding: var(--ob-space-1) var(--ob-space-2);
+  }
+
+  /* DX rows are clickable (they retarget the map path). */
+  .ob-dx-row {
+    min-height: 44px;
+  }
+
+  .ob-rail {
+    row-gap: var(--ob-space-2);
+  }
 }
