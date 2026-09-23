@@ -1349,10 +1349,16 @@ function isTrustedProxyAddr(addr) {
 }
 
 // Forwarding headers are honoured ONLY when the socket peer is our own proxy.
-// nginx.conf *sets* X-Real-IP ($remote_addr) so a client cannot forge it, and
-// *appends* to X-Forwarded-For — so only the first hop of XFF is ever read,
-// and only as a fallback. A direct-to-:3013 caller gets its socket address and
-// its headers ignored entirely.
+// nginx.conf takes CF-Connecting-IP from Cloudflare, but only when its own
+// peer is loopback/RFC1918/ULA (the tunnel), and otherwise uses $remote_addr;
+// it writes the result into X-Real-IP and REPLACES X-Forwarded-For with it
+// rather than appending. So X-Real-IP is authoritative and XFF is a fallback
+// read for its first hop only. Anything that can reach nginx from inside the
+// trusted ranges can name its own address — the cost is the telemetry
+// rate-limit key and the salted hash, nothing that authenticates. A
+// direct-to-:3013 caller gets its socket address and its headers ignored --
+// except one Docker's userland proxy carried in (IPv6 to the published port),
+// whose peer is the bridge gateway and so is trusted; nginx.conf says the same.
 function clientIp(req) {
   const socketAddr = (req.socket && req.socket.remoteAddress) || '';
   if (!isTrustedProxyAddr(socketAddr)) return normaliseIp(socketAddr) || 'unknown';
@@ -1368,12 +1374,58 @@ function clientIp(req) {
   return normaliseIp(socketAddr) || 'unknown';
 }
 
+// The first three hextets of an IPv6 address, or null if it is not one.
+//
+// The `::` run has to be expanded BEFORE slicing. split(':') counts the elided
+// groups as a single empty field, so slicing the raw string returned the wrong
+// hextets: '3fff::abcd:1234' became '3fff::abcd::/48', publishing a low-order
+// group of the very address the /48 exists to hide. That branch was dead while
+// every report arrived via the tunnel's IPv4 address; taking the real client
+// from CF-Connecting-IP is what makes it live.
+//
+// A dotted-quad tail (64:ff9b::192.0.2.1) is refused rather than parsed:
+// isPlausibleIp never lets one through a header, and 'unknown' is the safe
+// answer for a socket address shaped like that.
+function ipv6Groups(ip) {
+  const halves = ip.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 2 ? missing < 1 : missing !== 0) return null;
+  const groups = [...head, ...Array(missing).fill('0'), ...tail];
+  if (!groups.every((g) => /^[0-9a-f]{1,4}$/i.test(g))) return null;
+  return groups.map((g) => parseInt(g, 16).toString(16));
+}
+
+function ipv6Prefix48(ip) {
+  const g = ipv6Groups(ip);
+  return g ? g.slice(0, 3).join(':') : null;
+}
+
+// The rate-limit bucket for a client address. IPv4 is limited per address;
+// IPv6 per /64, the smallest block an ISP assigns one customer. Keyed on the
+// full /128, one client could step through its own /64 — 2^64 addresses — and
+// mint a fresh 10/hour bucket each time, churning the 5000-key LRU as it went.
+// That only became possible once nginx passed CF-Connecting-IP through: before,
+// every visitor arrived as the tunnel's IPv4 address. An IPv6 string that does
+// not parse shares one bucket, so varying the garbage buys nothing. The hash in
+// a stored report still uses the full address.
+function rateKey(ip) {
+  if (typeof ip !== 'string' || !ip.includes(':')) return ip;
+  const g = ipv6Groups(ip);
+  return g ? `${g.slice(0, 4).join(':')}::/64` : 'ipv6-unparsed';
+}
+
 function truncateIp(ip) {
   if (!ip || ip === 'unknown') return 'unknown';
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
     return `${ip.split('.').slice(0, 3).join('.')}.0/24`;
   }
-  if (ip.includes(':')) return `${ip.split(':').slice(0, 3).join(':')}::/48`;
+  if (ip.includes(':')) {
+    const prefix = ipv6Prefix48(ip);
+    return prefix ? `${prefix}::/48` : 'unknown';
+  }
   return 'unknown';
 }
 
@@ -1808,7 +1860,7 @@ const telemetryJsonParser = express.json({ limit: TELEMETRY_LIMITS.bodyLimit });
 
 function telemetryRateLimit(req, res, next) {
   // Runs BEFORE the body parser so a flood of 1 mb bodies is rejected cheaply.
-  const { allowed, retryAfter } = telemetryPostLimiter(clientIp(req));
+  const { allowed, retryAfter } = telemetryPostLimiter(rateKey(clientIp(req)));
   if (allowed) return next();
   res.set('Retry-After', String(retryAfter));
   return res.status(429).json({ ok: false, error: 'rate_limited', retry_after_s: retryAfter });
@@ -1895,7 +1947,7 @@ app.post(TELEMETRY_ROUTE, telemetryRateLimit, telemetryBody, async (req, res) =>
 // ---------------------------------------------------------------------------
 app.get('/api/telemetry/reports', (req, res) => {
   try {
-    const { allowed, retryAfter } = telemetryReadLimiter(clientIp(req));
+    const { allowed, retryAfter } = telemetryReadLimiter(rateKey(clientIp(req)));
     if (!allowed) {
       res.set('Retry-After', String(retryAfter));
       return res.status(429).json({ ok: false, error: 'rate_limited', retry_after_s: retryAfter });

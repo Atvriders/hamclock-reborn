@@ -4,3 +4,4 @@ dist
 .git
 .env
 *.log
+server/data

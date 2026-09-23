@@ -240,6 +240,63 @@ describe('POST /api/telemetry — happy path and storage', () => {
     assert.match(row.ip_hash, /^[0-9a-f]{16}$/);
   });
 
+  // Behind the tunnel every report used to arrive as the tunnel's own IPv4
+  // address, so the IPv6 branch of truncateIp never ran on a real client.
+  // Taking the client from CF-Connecting-IP makes it live, and the old
+  // split-and-slice returned the wrong hextets for any compressed address.
+  // Documentation prefixes only: 2001:db8::/32 (RFC 3849), 3fff::/20 (RFC 9637).
+  test('truncates IPv6 to a real /48, expanding :: before slicing', async () => {
+    const cases = [
+      // before: '2001:db8:abcd::/48' (right by luck — no elision in the head)
+      ['2001:db8:abcd:12::5', '2001:db8:abcd::/48'],
+      // before: '2001:db8:::/48' — a malformed label
+      ['2001:db8::dead:beef', '2001:db8:0::/48'],
+      // before: '3fff::abcd::/48' — published hextet 7 of the client's address
+      ['3fff::abcd:1234', '3fff:0:0::/48'],
+    ];
+    for (const [ip, want] of cases) {
+      const { res } = await h.postJson(validReport(), { ip });
+      assert.equal(res.status, 200, ip);
+      const row = h.jsonl().at(-1);
+      assert.equal(row.ip_trunc, want, ip);
+      for (const low of ip.split(':').slice(-2).filter((g) => g.length >= 2)) {
+        assert.ok(!row.ip_trunc.includes(low),
+          `${ip}: low-order group '${low}' leaked into ${row.ip_trunc}`);
+      }
+    }
+    assert.ok(!h.rawJsonl().includes('dead:beef'), 'raw IPv6 must not be stored');
+  });
+
+  // isPlausibleIp is a character-class check, so every one of these reaches
+  // truncateIp through X-Real-IP. Nine groups, or eight plus '::', make the
+  // elided run negative; without the length guard that is Array(-1), a
+  // RangeError, and the report is lost to a 500. None may yield a prefix: a
+  // guess at which groups are the high ones is a guess at what to publish.
+  test('malformed IPv6 that passes the header check is stored as unknown, not a 500', async () => {
+    const malformed = [
+      '1:2:3:4:5:6:7:8:9',     // nine groups
+      '1:2:3:4:5:6:7::8',      // eight groups AND '::'
+      '1::2::3',               // two '::'
+      '1:2:3:4:5:6:7:8::9::a', // two '::' after a full eight-group head
+      ':::1',                  // an empty group beside '::'
+      ':1:2:3:4:5:6:7',        // leading single colon
+      '12345::1',              // five-digit group
+      '::::::::',
+    ];
+    for (const ip of malformed) {
+      const { res } = await h.postJson(validReport(), { ip });
+      assert.equal(res.status, 200, ip);
+      assert.equal(h.jsonl().at(-1).ip_trunc, 'unknown', ip);
+    }
+    // And the compressed edge forms that ARE addresses still get their /48.
+    for (const [ip, want] of [['::', '0:0:0::/48'], ['1:2:3:4:5:6:7::', '1:2:3::/48'],
+      ['2001:DB8:ABCD:0001::1', '2001:db8:abcd::/48']]) {
+      const { res } = await h.postJson(validReport(), { ip });
+      assert.equal(res.status, 200, ip);
+      assert.equal(h.jsonl().at(-1).ip_trunc, want, ip);
+    }
+  });
+
   test('writes the screenshot as a .png file, never inline in the log line', async () => {
     const png = makePng(24, 16);
     const { res, json } = await h.postJson(
@@ -447,6 +504,20 @@ describe('POST /api/telemetry — rate limiting', () => {
     assert.equal(blocked.json.error, 'rate_limited');
     const retry = Number(blocked.res.headers.get('retry-after'));
     assert.ok(Number.isInteger(retry) && retry > 0 && retry <= 3600, `Retry-After=${retry}`);
+  });
+
+  // Keyed per /128, one IPv6 client could walk its own /64 and mint a fresh
+  // bucket for every address. 2001:db8::/32 is documentation space (RFC 3849).
+  test('IPv6 is limited per /64, so rotating addresses inside it buys nothing', async () => {
+    for (let i = 1; i <= 10; i += 1) {
+      const { res } = await h.postJson(validReport(), { ip: `2001:db8:5:6::${i.toString(16)}` });
+      assert.equal(res.status, 200, `request ${i} should be accepted`);
+    }
+    // before: a new address in the same /64 was a new bucket, so this was 200
+    const rotated = await h.postJson(validReport(), { ip: '2001:db8:5:6:ffff:1:2:3' });
+    assert.equal(rotated.res.status, 429);
+    const neighbour = await h.postJson(validReport({ device_id: DEVICE_B }), { ip: '2001:db8:5:7::1' });
+    assert.equal(neighbour.res.status, 200, 'the next /64 is a different customer');
   });
 
   test('the limit is per IP — a different device on a different IP still works', async () => {
