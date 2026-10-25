@@ -611,6 +611,70 @@ describe('GET /api/telemetry/reports', () => {
     assert.equal(res.headers.get('cache-control'), 'no-store');
   });
 
+  // The Oct 2026 report raised questions it could not answer from this
+  // listing — which frames were slow, how old the processes were, whether the
+  // clock had stepped — and answering them took shell access to the box. Pi
+  // 1.0.11 sends those fields; the listing must carry them, and still nothing
+  // that was not picked by name.
+  test('carries the 1.0.11 diagnostics, and only the named ones', async () => {
+    const report = validReport({
+      app: { version: '1.0.11', mode: 'pygame', install: 'kiosk', proc_age_s: 446.2 },
+      host: { ...validReport().host, clock_step_s: -9.6, ntp_synced: false },
+      perf: {
+        ...validReport().perf,
+        present: { n: 120, p50: 3.1, p90: 12.4, max: 61.0, span_p50: 60, span_max: 312, flips_total: 2 },
+        slow_frames: [{ ago_s: 12.5, ms: 96.4, present_ms: 61.0, span: 312, drew: 'propagation', flip: false }],
+        glyph: { hit: 900, miss: 40, evict: 0, volatile: 180, size: 151, cap: 256 },
+        not_picked: 'must not appear',
+      },
+    });
+    const { res } = await h.postJson(report, { ip: '203.0.113.33' });
+    assert.equal(res.status, 200);
+    const { text, json } = await h.reports();
+    const r = json.reports.find((x) => x.app && x.app.version === '1.0.11');
+    assert.ok(r, 'the 1.0.11 report is listed');
+    assert.equal(r.app.proc_age_s, 446.2);
+    assert.equal(r.host.clock_step_s, -9.6);
+    assert.equal(r.host.ntp_synced, false);
+    assert.equal(r.perf.present.span_max, 312);
+    assert.equal(r.perf.slow_frames[0].drew, 'propagation');
+    assert.equal(r.perf.glyph.cap, 256);
+    assert.ok(!text.includes('not_picked'), 'an unpicked perf field leaked into the listing');
+  });
+
+  // Picked by name alone, these fields would republish anything a sender
+  // nested under them on an unauthenticated page. They are projected by type.
+  test('the 1.0.11 fields carry only numbers, booleans and panel names', async () => {
+    const report = validReport({
+      app: { version: '1.0.11-hostile', mode: 'pygame', install: 'kiosk', proc_age_s: 'BUY NOW' },
+      host: { ...validReport().host, clock_step_s: { nested: 'x' }, ntp_synced: 'yes' },
+      perf: {
+        ...validReport().perf,
+        present: { n: 5, p50: 'http://spam.example', extra: 1 },
+        slow_frames: [
+          { ago_s: 1, ms: 99, drew: '<script>alert(1)</script>', flip: 'no' },
+          'not an object',
+          { ms: 120, drew: 'header+open_bands', flip: false },
+        ],
+        glyph: { hit: 1, miss: [1, 2], size: 'big' },
+      },
+    });
+    const { res } = await h.postJson(report, { ip: '203.0.113.34' });
+    assert.equal(res.status, 200);
+    const { text, json } = await h.reports();
+    const r = json.reports.find((x) => x.app && x.app.version === '1.0.11-hostile');
+    assert.ok(r, 'the report is listed');
+    assert.equal(r.app.proc_age_s, undefined);
+    assert.equal(r.host.clock_step_s, undefined);
+    assert.equal(r.host.ntp_synced, undefined);
+    assert.deepEqual(r.perf.present, { n: 5 });
+    assert.deepEqual(r.perf.slow_frames, [{ ago_s: 1, ms: 99 }, { ms: 120, drew: 'header+open_bands', flip: false }]);
+    assert.deepEqual(r.perf.glyph, { hit: 1 });
+    for (const bad of ['BUY NOW', 'spam.example', '<script>', 'big']) {
+      assert.ok(!text.includes(bad), `the listing republished ${bad}`);
+    }
+  });
+
   test('rate-limits reads as well', async () => {
     const ip = '198.51.100.200';
     let sawLimit = false;

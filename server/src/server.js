@@ -1642,17 +1642,66 @@ function shotPathFor(name) {
 }
 
 // Public (unauthenticated) projection — see GET /api/telemetry/reports.
+// Field name -> the only shape it may take on the public listing.
+const APP_1011 = { proc_age_s: 'number' };
+const HOST_1011 = { clock_step_s: 'number', ntp_synced: 'boolean-or-null' };
+const PRESENT_1011 = {
+  n: 'number', p50: 'number', p90: 'number', max: 'number',
+  span_p50: 'number', span_max: 'number', flips_total: 'number',
+};
+const SLOW_FRAME_1011 = {
+  ago_s: 'number', ms: 'number', present_ms: 'number', span: 'number', drew: 'panels', flip: 'boolean',
+};
+const GLYPH_1011 = {
+  hit: 'number', miss: 'number', evict: 'number', volatile: 'number', size: 'number', cap: 'number',
+};
+// What the Pi writes in `drew`: panel names joined with '+', or '-'.
+const PANELS_RE = /^(-|[a-z_]{1,20}(\+[a-z_]{1,20}){0,15})$/;
+
+function pickTyped(obj, spec) {
+  const out = {};
+  if (!isPlainObject(obj)) return out;
+  for (const [key, type] of Object.entries(spec)) {
+    const v = obj[key];
+    if (type === 'number' && typeof v === 'number' && Number.isFinite(v)) out[key] = v;
+    else if (type === 'boolean' && typeof v === 'boolean') out[key] = v;
+    else if (type === 'boolean-or-null' && (typeof v === 'boolean' || v === null)) out[key] = v;
+    else if (type === 'panels' && typeof v === 'string' && PANELS_RE.test(v)) out[key] = v;
+  }
+  return out;
+}
+
+function perf1011(perf) {
+  const out = {};
+  if (!isPlainObject(perf)) return out;
+  if (isPlainObject(perf.present)) out.present = pickTyped(perf.present, PRESENT_1011);
+  if (Array.isArray(perf.slow_frames)) {
+    out.slow_frames = perf.slow_frames.slice(0, 8).filter(isPlainObject)
+      .map((f) => pickTyped(f, SLOW_FRAME_1011));
+  }
+  if (isPlainObject(perf.glyph)) out.glyph = pickTyped(perf.glyph, GLYPH_1011);
+  return out;
+}
+
 function publicView(record) {
   return {
     id: record.id,
     device_id: record.device_id,
     received_at: record.received_at,
     sent_at_claimed: record.sent_at_claimed ?? null,
-    app: pick(record.app, ['version', 'mode', 'install']),
-    host: pick(record.host, ['model', 'cpu', 'cores', 'mem_total_kb', 'kernel', 'os', 'python', 'uptime_s']),
+    // Pi 1.0.11 added proc_age_s, clock_step_s / ntp_synced, and the present /
+    // slow_frames / glyph timings: what made the Oct 2026 report impossible to
+    // read without shell access to this box. They are projected BY TYPE, not
+    // passed through: picked by name alone, whatever a sender nested under
+    // them — any string up to 200 chars — would be republished here.
+    app: { ...pick(record.app, ['version', 'mode', 'install']), ...pickTyped(record.app, APP_1011) },
+    host: {
+      ...pick(record.host, ['model', 'cpu', 'cores', 'mem_total_kb', 'kernel', 'os', 'python', 'uptime_s']),
+      ...pickTyped(record.host, HOST_1011),
+    },
     display: pick(record.display, ['sdl_driver', 'bitsize', 'size', 'fullscreen']),
     versions: pick(record.versions, ['pygame', 'sdl', 'cairosvg', 'cpulimit']),
-    perf: pick(record.perf, ['frame_ms', 'panel_ms', 'boot_to_first_paint_s']),
+    perf: { ...pick(record.perf, ['frame_ms', 'panel_ms', 'boot_to_first_paint_s']), ...perf1011(record.perf) },
     has_screenshot: Boolean(record.screenshot),
     screenshot_bytes: record.screenshot_bytes || 0,
   };
