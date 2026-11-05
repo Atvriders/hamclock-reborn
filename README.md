@@ -376,7 +376,10 @@ orphaned by a crash are swept at startup, and the log is pruned oldest-first.
 **`GET /api/telemetry/reports` is unauthenticated**, because nginx proxies
 `/api/` straight through. It therefore exposes metadata only — report ID,
 timestamps, hardware, display, versions, timings. It never returns screenshots,
-the raw `server` diagnostics blob, the IP in any form, or the user agent.
+the raw `server` diagnostics blob, the IP in any form, or the user agent. From
+Pi 1.0.12 on, exactly two numbers are taken from that blob, each published only
+if it is a finite number: the Pi's local server's uptime and how far its clock
+has been stepped since it started (`server.boot.uptime_s`, `clock_step_s`).
 Anything added to that projection must stay harmless to a stranger.
 
 Ingest is hardened against abuse: 1 MB body cap, JSON-only, strict allow-list of

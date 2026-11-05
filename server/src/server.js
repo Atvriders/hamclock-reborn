@@ -1655,6 +1655,19 @@ const SLOW_FRAME_1011 = {
 const GLYPH_1011 = {
   hit: 'number', miss: 'number', evict: 'number', volatile: 'number', size: 'number', cap: 'number',
 };
+// Seconds since the Pi's systemd-timesyncd last accepted an NTP sample and
+// adjusted its clock. The Pi sends null when timesyncd is stopped, running but
+// not synced since it (re)started, or absent because the Pi keeps time with
+// chrony or ntpd (whose syncs this field cannot see); null is not a number, so
+// it is omitted.
+const HOST_1012 = { ntp_last_sync_age_s: 'number' };
+// The client's background image decode/scale worker.
+const IMAGE_PREP_1012 = {
+  threaded: 'boolean', jobs: 'number', failed: 'number', pending: 'number', last_ms: 'number', max_ms: 'number',
+};
+// The local feed server's age and its own wall-clock step. These two numbers
+// are ALL of `server` — the Pi's private diagnostics blob — that is published.
+const SERVER_BOOT_1012 = { uptime_s: 'number', clock_step_s: 'number' };
 // What the Pi writes in `drew`: panel names joined with '+', or '-'.
 const PANELS_RE = /^(-|[a-z_]{1,20}(\+[a-z_]{1,20}){0,15})$/;
 
@@ -1683,6 +1696,26 @@ function perf1011(perf) {
   return out;
 }
 
+function perf1012(perf) {
+  const out = {};
+  if (!isPlainObject(perf)) return out;
+  if (isPlainObject(perf.image_prep)) out.image_prep = pickTyped(perf.image_prep, IMAGE_PREP_1012);
+  return out;
+}
+
+// `server` may be absent, null, an {error: ...} object, or anything a sender
+// (or an older log line) put there. Always the same shape out: { boot: {...} }.
+// Filled only for reports whose server.boot carries clock_step_s, i.e. from Pi
+// 1.0.12 on. Every earlier report was sent while the Pi's README promised that
+// nothing from the server blob is in this listing, and the listing is rebuilt
+// from the stored log at every start: publishing their uptime_s now would
+// break that promise after the fact.
+function server1012(server) {
+  const boot = isPlainObject(server) && isPlainObject(server.boot) ? server.boot : null;
+  if (!boot || !Object.prototype.hasOwnProperty.call(boot, 'clock_step_s')) return { boot: {} };
+  return { boot: pickTyped(boot, SERVER_BOOT_1012) };
+}
+
 function publicView(record) {
   return {
     id: record.id,
@@ -1691,17 +1724,28 @@ function publicView(record) {
     sent_at_claimed: record.sent_at_claimed ?? null,
     // Pi 1.0.11 added proc_age_s, clock_step_s / ntp_synced, and the present /
     // slow_frames / glyph timings: what made the Oct 2026 report impossible to
-    // read without shell access to this box. They are projected BY TYPE, not
-    // passed through: picked by name alone, whatever a sender nested under
-    // them — any string up to 200 chars — would be republished here.
+    // read without shell access to this box. 1.0.12 adds ntp_last_sync_age_s,
+    // the image_prep worker stats, and server.boot's uptime_s / clock_step_s:
+    // a Pi has no RTC, and an NTP step that lands before the client process
+    // starts is invisible to the client's own clock_step_s. The local feed
+    // server starts first, so its step is the only record of one. All of them
+    // are projected BY TYPE, not passed through: picked by name alone, whatever
+    // a sender nested under them — any string up to 200 chars — would be
+    // republished here.
     app: { ...pick(record.app, ['version', 'mode', 'install']), ...pickTyped(record.app, APP_1011) },
     host: {
       ...pick(record.host, ['model', 'cpu', 'cores', 'mem_total_kb', 'kernel', 'os', 'python', 'uptime_s']),
       ...pickTyped(record.host, HOST_1011),
+      ...pickTyped(record.host, HOST_1012),
     },
     display: pick(record.display, ['sdl_driver', 'bitsize', 'size', 'fullscreen']),
     versions: pick(record.versions, ['pygame', 'sdl', 'cairosvg', 'cpulimit']),
-    perf: { ...pick(record.perf, ['frame_ms', 'panel_ms', 'boot_to_first_paint_s']), ...perf1011(record.perf) },
+    perf: {
+      ...pick(record.perf, ['frame_ms', 'panel_ms', 'boot_to_first_paint_s']),
+      ...perf1011(record.perf),
+      ...perf1012(record.perf),
+    },
+    server: server1012(record.server),
     has_screenshot: Boolean(record.screenshot),
     screenshot_bytes: record.screenshot_bytes || 0,
   };
@@ -1990,7 +2034,8 @@ app.post(TELEMETRY_ROUTE, telemetryRateLimit, telemetryBody, async (req, res) =>
 // UNAUTHENTICATED: nginx proxies /api/ straight through, so anyone on the
 // internet can read this. It therefore exposes metadata ONLY — device_id,
 // timestamps, hardware model, display/driver/depth, library versions and
-// timings. Never the screenshots, never the raw `server` diagnostics blob,
+// timings. Never the screenshots, never the raw `server` diagnostics blob
+// (only two typed numbers from its boot section: see SERVER_BOOT_1012),
 // never the IP (not even the hashed form), never the user agent. Anything
 // added here must pass the same test: harmless to a stranger.
 // ---------------------------------------------------------------------------

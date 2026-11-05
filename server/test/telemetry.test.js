@@ -588,11 +588,12 @@ describe('GET /api/telemetry/reports', () => {
     assert.ok(json.reports[0].screenshot_bytes > 0);
 
     // This endpoint is unauthenticated: no IPs, no user agents, no raw
-    // screenshot data, no filename, no `server` blob.
-    for (const forbidden of ['ip_hash', 'ip_trunc', 'user_agent', 'screenshot_png_b64', '198.51', '203.0.113', 'iVBOR']) {
+    // screenshot data, no filename, no `server` blob — only the stable
+    // server.boot shape, empty here because this blob has no typed boot fields.
+    for (const forbidden of ['ip_hash', 'ip_trunc', 'user_agent', 'screenshot_png_b64', '198.51', '203.0.113', 'iVBOR', 'stale']) {
       assert.ok(!text.includes(forbidden), `reports listing leaked ${forbidden}`);
     }
-    assert.equal(r.server, undefined);
+    assert.deepEqual(r.server, { boot: {} });
     assert.equal(r.screenshot, undefined);
   });
 
@@ -675,6 +676,125 @@ describe('GET /api/telemetry/reports', () => {
     }
   });
 
+  // A field report's clock had been stepped back ~9.5 s before the client
+  // process started, so the client's own clock_step_s read 0 and the step was
+  // recoverable only by hand from the private `server` blob. Pi 1.0.12's local
+  // server reports it as server.boot.clock_step_s; the listing carries that,
+  // the server's age, and two new client fields — and nothing else from it.
+  test('carries the 1.0.12 diagnostics, and only the named ones', async () => {
+    const report = validReport({
+      app: { version: '1.0.12', mode: 'pygame', install: 'kiosk', proc_age_s: 30.5 },
+      host: { ...validReport().host, clock_step_s: 0, ntp_synced: true, ntp_last_sync_age_s: 1134.2 },
+      perf: {
+        ...validReport().perf,
+        image_prep: { threaded: true, jobs: 14, failed: 1, pending: 0, last_ms: 820.5, max_ms: 2310 },
+      },
+      server: {
+        schema: 1,
+        boot: {
+          started_at: 1793835660.25, uptime_s: 1150, clock_step_s: -9.5,
+          disk_warm: true, restored: ['muf_image_png'], first_ok_s: { sdo: 3.1 },
+        },
+        fetch: { sdo: { last_error: 'URLError' } },
+        process: { python: '3.11.2' },
+      },
+    });
+    const { res } = await h.postJson(report, { ip: '203.0.113.35' });
+    assert.equal(res.status, 200);
+    const { text, json } = await h.reports();
+    const r = json.reports.find((x) => x.app && x.app.version === '1.0.12');
+    assert.ok(r, 'the 1.0.12 report is listed');
+    assert.equal(r.host.ntp_last_sync_age_s, 1134.2);
+    assert.deepEqual(r.perf.image_prep, { threaded: true, jobs: 14, failed: 1, pending: 0, last_ms: 820.5, max_ms: 2310 });
+    assert.deepEqual(Object.keys(r.server), ['boot']);
+    assert.deepEqual(r.server.boot, { uptime_s: 1150, clock_step_s: -9.5 });
+    for (const leaked of ['started_at', 'disk_warm', 'muf_image_png', 'first_ok_s', 'URLError', '1793835660']) {
+      assert.ok(!text.includes(leaked), `the listing republished server content: ${leaked}`);
+    }
+  });
+
+  test('the 1.0.12 client fields carry only numbers and booleans', async () => {
+    // [name, host.ntp_last_sync_age_s, perf.image_prep, published image_prep (undefined = no key)]
+    const cases = [
+      ['typed', 'an hour ago', {
+        threaded: 'yes', jobs: '14', failed: [1], pending: { n: 0 }, last_ms: true, max_ms: 2310, smuggled: 'SMUGGLED-PREP',
+      }, { max_ms: 2310 }],
+      ['string', null, 'SMUGGLED-STRING', undefined],
+      ['array', { s: 1 }, [{ jobs: 1 }], undefined],
+      ['null', true, null, undefined],
+    ];
+    let ip = 50;
+    for (const [name, ntpAge, imagePrep] of cases) {
+      const report = validReport({
+        app: { version: `1.0.12-client-${name}`, mode: 'pygame', install: 'kiosk' },
+        host: { ...validReport().host, ntp_last_sync_age_s: ntpAge },
+        perf: { ...validReport().perf, image_prep: imagePrep },
+      });
+      const { res } = await h.postJson(report, { ip: `203.0.113.${ip += 1}` });
+      assert.equal(res.status, 200, name);
+    }
+    const { text, json } = await h.reports();
+    for (const [name, , , want] of cases) {
+      const r = json.reports.find((x) => x.app && x.app.version === `1.0.12-client-${name}`);
+      assert.ok(r, `${name} is listed`);
+      // null (the Pi could not tell) and every non-number are simply omitted.
+      assert.ok(!('ntp_last_sync_age_s' in r.host), name);
+      if (want === undefined) assert.ok(!('image_prep' in r.perf), name);
+      else assert.deepEqual(r.perf.image_prep, want, name);
+    }
+    for (const bad of ['an hour ago', 'SMUGGLED']) {
+      assert.ok(!text.includes(bad), `the listing republished ${bad}`);
+    }
+  });
+
+  // `server` is the Pi's private diagnostics blob: absent, null, the client's
+  // {error: ...} when its local server was unreachable, or anything at all.
+  // Whatever arrives, the listing shows { boot } holding at most two numbers.
+  test('server is always { boot } with typed numbers only, whatever was sent', async () => {
+    // [name, server (undefined = key absent), published server.boot]
+    const cases = [
+      ['absent', undefined, {}],
+      ['null', null, {}],
+      ['error', { error: 'URLError' }, {}],
+      ['boot-string', { boot: 'SMUGGLED-BOOT' }, {}],
+      ['boot-array', { boot: [1150, -9.5] }, {}],
+      ['wrong-types', { boot: { uptime_s: true, clock_step_s: '-9.5' } }, {}],
+      ['nested', { boot: { uptime_s: { n: 1150 }, clock_step_s: [-9.5] } }, {}],
+      ['step-null', { boot: { uptime_s: 1150, clock_step_s: null } }, { uptime_s: 1150 }],
+      // A pre-1.0.12 local server: no clock_step_s, so nothing from it.
+      ['pre-1.0.12', { boot: { uptime_s: 1150, started_at: 1.5 } }, {}],
+      ['huge-string', { boot: { uptime_s: 'Z'.repeat(5000), clock_step_s: -1 } }, { clock_step_s: -1 }],
+      ['extra-keys', {
+        boot: { uptime_s: 61, clock_step_s: 0.4, started_at: 1.5, note: 'SMUGGLED-BOOT-KEY' },
+        note: 'SMUGGLED-SERVER-KEY',
+        uptime_s: 999,
+      }, { uptime_s: 61, clock_step_s: 0.4 }],
+    ];
+    let ip = 60;
+    for (const [name, server] of cases) {
+      const report = validReport({ app: { version: `1.0.12-server-${name}`, mode: 'pygame', install: 'kiosk' } });
+      if (server === undefined) delete report.server;
+      else report.server = server;
+      const { res } = await h.postJson(report, { ip: `203.0.113.${ip += 1}` });
+      assert.equal(res.status, 200, name);
+    }
+    const { text, json } = await h.reports();
+    for (const [name, , want] of cases) {
+      const r = json.reports.find((x) => x.app && x.app.version === `1.0.12-server-${name}`);
+      assert.ok(r, `${name} is listed`);
+      assert.deepEqual(Object.keys(r.server), ['boot'], name);
+      assert.deepEqual(r.server.boot, want, name);
+    }
+    for (const bad of ['SMUGGLED', 'URLError', 'ZZZZ']) {
+      assert.ok(!text.includes(bad), `the listing republished ${bad}`);
+    }
+
+    // A bare string is not an object: the whole report is refused at the door.
+    const { res, json: refused } = await h.postJson(validReport({ server: 'x' }), { ip: '203.0.113.90' });
+    assert.equal(res.status, 400);
+    assert.equal(refused.error, 'invalid_server');
+  });
+
   test('rate-limits reads as well', async () => {
     const ip = '198.51.100.200';
     let sawLimit = false;
@@ -684,6 +804,62 @@ describe('GET /api/telemetry/reports', () => {
       if (res.status === 429) { sawLimit = true; break; }
     }
     assert.ok(sawLimit, 'read endpoint should rate-limit');
+  });
+});
+
+// ===========================================================================
+// The projection also runs over every line of reports.jsonl at startup —
+// lines an older receiver wrote, or a hand edit — where `server` can hold what
+// no POST could deliver today: a bare string, an array, a string past the
+// 200-char clamp. One such line must neither stop the receiver nor be listed.
+describe('GET /api/telemetry/reports — stored records with any `server` value', () => {
+  const h = new Harness();
+  const huge = 'Q'.repeat(10_000);
+  // [name, stored server value, published server.boot]
+  const stored = [
+    ['absent', undefined, {}],
+    ['null', null, {}],
+    ['bare-string', huge, {}],
+    ['number', 42, {}],
+    ['array', [{ boot: { uptime_s: 1 } }], {}],
+    ['boot-string', { boot: huge }, {}],
+    ['huge-strings', { boot: { uptime_s: huge, clock_step_s: huge, note: huge }, note: huge }, {}],
+    ['valid', { boot: { uptime_s: 1150, clock_step_s: -9.5, started_at: 1.5 }, error: 'URLError' },
+      { uptime_s: 1150, clock_step_s: -9.5 }],
+    // What every 1.0.10/1.0.11 report on disk looks like. Those were sent
+    // under "nothing from the server blob is in the listing": still nothing.
+    ['sent-by-1.0.11', { schema: 1, boot: { started_at: 1793559719.3, uptime_s: 1150, disk_warm: true } }, {}],
+  ];
+  before(async () => {
+    const lines = stored.map(([name, server], i) => JSON.stringify({
+      id: `00000000-0000-4000-8000-00000000000${i}`,
+      device_id: DEVICE_A,
+      received_at: '2026-11-01T00:00:00.000Z',
+      app: { version: `stored-${name}` },
+      server,
+      screenshot: null,
+      screenshot_bytes: 0,
+    }));
+    fs.writeFileSync(path.join(h.dir, 'reports.jsonl'), `${lines.join('\n')}\n`);
+    await h.start();
+  });
+  after(() => h.cleanup());
+
+  test('every stored record is listed as { boot } with typed numbers only', async () => {
+    const { text, json } = await h.reports();
+    assert.equal(json.total, stored.length);
+    for (const [name, , want] of stored) {
+      const r = json.reports.find((x) => x.app.version === `stored-${name}`);
+      assert.ok(r, `${name} is listed`);
+      assert.deepEqual(Object.keys(r.server), ['boot'], name);
+      assert.deepEqual(r.server.boot, want, name);
+    }
+    assert.ok(!text.includes('QQQQ'), 'a stored server string reached the listing');
+    assert.ok(!text.includes('URLError'), 'stored server content reached the listing');
+
+    // ...and the receiver is still accepting reports.
+    const { res } = await h.postJson(validReport(), { ip: '203.0.113.95' });
+    assert.equal(res.status, 200);
   });
 });
 

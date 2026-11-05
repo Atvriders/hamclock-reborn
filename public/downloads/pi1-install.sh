@@ -2135,9 +2135,41 @@ def _proc_self_status():
     return rss, threads
 
 
+def _clock_step_s(now=None, mono=None):
+    """Net wall-clock step since this process started, in seconds, or None.
+
+    Negative means the clock was stepped BACK. Why the server measures this
+    at all: the Pi has no RTC, so its clock drifts until systemd-timesyncd
+    next reaches a time server, which then steps it (an offset under 0.4 s
+    is slewed instead, and moves nothing here) — and a step that lands
+    before the client process starts is invisible to the client's own
+    host.clock_step_s, which can only measure from its own start. The server
+    starts first. A field report's ~9.5 s backward step was recoverable only
+    by hand, from (now - started_at) vs uptime_s; this states it directly.
+
+    `now` / `mono` take the readings a caller already holds, so the step
+    agrees with the `now` it is reported beside. Never raises.
+    """
+    try:
+        if now is None:
+            now = time.time()
+        if mono is None:
+            mono = time.monotonic()
+        step = round((now - mono) - (_BOOT_EPOCH - _BOOT_MONOTONIC), 1)
+        # A few ms of negative jitter rounds to -0.0, which would read as a
+        # backward step in the JSON. Nothing stepped is a plain 0.0.
+        return step if step else 0.0
+    except Exception:
+        return None
+
+
 def _diagnostics_snapshot():
     """Build the /api/diagnostics body. Pure reads; never raises."""
+    # Both clocks read once, here: `now`, uptime_s and clock_step_s are then
+    # one instant, so (now - started_at) - uptime_s cross-checks the step to
+    # within uptime_s's whole-second resolution (it is truncated).
     now = time.time()
+    mono = time.monotonic()
     png = CACHE.get('muf_image_png')
     svg = CACHE.get('muf_image')
     ewma = _muf_render_ewma
@@ -2211,7 +2243,11 @@ def _diagnostics_snapshot():
         'fetch': fetch,
         'boot': {
             'started_at': _BOOT_EPOCH,
-            'uptime_s': int(max(0.0, time.monotonic() - _BOOT_MONOTONIC)),
+            'uptime_s': int(max(0.0, mono - _BOOT_MONOTONIC)),
+            # Wall-clock step since the server started (negative = stepped
+            # back), 0.1 s resolution; null if the clocks could not be read.
+            # The only record of an NTP step taken before the client started.
+            'clock_step_s': _clock_step_s(now, mono),
             'disk_warm': _BOOT_DISK_WARM,
             'restored': list(_DISK_RESTORED),
             # Seconds from process start to the first fetch that produced
@@ -3451,9 +3487,17 @@ class HamClockData:
         self.health_at = 0
         # Per-image refresh timestamps (epoch seconds). Maps image_key
         # ('solar-image' | 'muf-map' | 'enlil' | 'drap' | 'real-drap')
-        # to the epoch-second when that key's bytes last refreshed.
-        # Used by the pygame client's _scaled_cache to invalidate per-image.
+        # to the epoch-second of that key's last SUCCESSFUL fetch — moved on
+        # every one, whether or not the bytes differ. Ages are read from it.
         self.image_fetched_at = {}
+        # When each key's bytes last CHANGED: stamped on a fetch only when it
+        # brought bytes different from the ones held (a first arrival counts,
+        # and so does a payload arriving after mark_image_undecodable dropped
+        # the last one). Every image is re-polled every 900 s whether or not
+        # upstream has published anything; the Nov 2026 report caught two of
+        # five refetches byte-identical, and the client decoded and scaled
+        # each one again. The pygame client keys its decoded surfaces on this.
+        self.image_changed_at = {}
         # Tier 1.4 retry scheduling, both keyed by image_key.
         #   image_next_due[key]    epoch second at/after which key may be
         #                          attempted again (missing => due now)
@@ -3470,6 +3514,32 @@ class HamClockData:
         self._image_interval = 900
         # Errors (most recent error per key, None if last fetch succeeded)
         self.errors = {}
+        # 1.0.12: (bytes, when) of the payload mark_image_undecodable last
+        # dropped, per key. A refetch that brings exactly those bytes again
+        # within one slow image interval is a failed attempt (see
+        # refresh_images): without this, an upstream that keeps serving one
+        # bad body (an HTML error page cached as an image) was fetched and
+        # handed to the decoder every ~5 s, each success resetting the
+        # backoff it should have been climbing. After the interval the same
+        # bytes are tried once more, so a failure that was not the bytes'
+        # fault (memory, say) clears itself on the first attempt after 15
+        # minutes (within 16: the backoff's ceiling is 60 s). The interval is
+        # measured on time.time(), the clock image_next_due runs on: a
+        # backward step already holds every feed until the wall clock
+        # catches up, and this window adds at most its own 15 minutes.
+        self._undecodable = {}
+        # 1.0.12: per key, True when its latest attempt got no payload at all
+        # (an HTTP error, a timeout, nothing listening) and False when it got
+        # bytes back, readable or not. Published by refresh_images with the
+        # bytes. The pygame client keeps a dropped payload's last good
+        # picture up, labelled 'image data not readable', only while that
+        # payload is still the latest news for the key: once the requests
+        # themselves fail, the picture comes down, as it did in 1.0.11 (the
+        # SDO and MUF panels report the outage; the propagation panel leaves
+        # that tab out of its rotation until the feed is back). (A feed that
+        # fails without sending a bad payload first keeps its bytes here,
+        # and so its picture, which the client labels with its age.)
+        self.image_fetch_failed = {}
         # Tier 2c perf: ETags by path so we can replay If-None-Match on the
         # next poll. ~80% of /api/{solar,bands,dxspots} polls land on
         # unchanged data; a 304 short-circuits the read+json.loads here.
@@ -3528,18 +3598,35 @@ class HamClockData:
             self.errors[path] = '{}: {}'.format(type(e).__name__, e)
             return None
 
-    def mark_image_undecodable(self, key, retry_in=None):
+    def _bytes_stamp(self, key):
+        """When key's bytes last changed: image_changed_at, falling back to
+        image_fetched_at and then the global refresh tick — the same rule as
+        the pygame client's _image_stamp."""
+        stamp = self.image_changed_at.get(key)
+        if stamp is None:
+            stamp = self.image_fetched_at.get(key, self.last_image_refresh)
+        return stamp
+
+    def mark_image_undecodable(self, key, retry_in=None, stamp=None):
         """Report that key's cached bytes could not be decoded.
 
         A 200 carrying a payload this client cannot render is a failed fetch in
         every way that matters, but _fetch_binary cannot see that — only the
         decoder can. Without this the key stays "satisfied" until the slow
         cycle comes round again. Schedules a retry on the normal backoff.
+
+        `stamp` names the payload that failed (the client's _image_stamp for
+        it). When given and the key's bytes have changed since, the report is
+        stale — a newer payload already replaced the bad one — and nothing is
+        dropped: the 1.0.12 client decodes on a worker thread, so a verdict
+        can reach here after newer bytes have landed.
         """
         try:
             if key not in self._IMAGE_ENDPOINTS:
                 return
             with self._lock:
+                if stamp is not None and self._bytes_stamp(key) != stamp:
+                    return
                 streak = self.image_fail_streak.get(key, 0) + 1
                 self.image_fail_streak[key] = streak
                 if retry_in is None:
@@ -3549,8 +3636,10 @@ class HamClockData:
                 # Drop the bad payload so a stale-but-good surface is not
                 # rebuilt from it, and so "have we got bytes" stays honest.
                 imgs = dict(self.images)
-                imgs.pop(key, None)
+                bad = imgs.pop(key, None)
                 self.images = imgs
+                if bad is not None:
+                    self._undecodable[key] = (bad, time.time())
         except Exception:
             pass
 
@@ -3638,38 +3727,80 @@ class HamClockData:
             keys = self._IMAGE_ENDPOINTS
         results = {}
         fetched = {}
+        no_payload = {}
         try:
             for key in keys:
                 path = self._IMAGE_ENDPOINTS.get(key)
                 if path is None:
                     continue
                 ok = False
+                got = False
                 try:
                     data = self._fetch_binary(path)
-                    ok = data is not None
+                    got = data is not None
+                    ok = got
+                    bad = self._undecodable.get(key) if ok else None
+                    if (bad is not None and bad[0] == data
+                            and time.time() - bad[1] < self._image_interval):
+                        # The very payload the client could not decode, back
+                        # again: a failed attempt, not a success. Unpublished
+                        # (the client keeps its last good picture) and the
+                        # streak climbs the backoff to its 60 s ceiling,
+                        # where it used to restart at 5 s on every refetch.
+                        ok = False
+                        self.errors[path] = 'undecodable payload, unchanged'
                     results[key] = ok
                     if ok:
                         fetched[key] = data
+                        self._undecodable.pop(key, None)
                 finally:
+                    no_payload[key] = not got
                     self._reschedule_image(key, ok, time.time())
         finally:
             # Also a `finally` so bytes already in hand are published even if
             # a later key blows up — those keys are rescheduled 900 s out and
             # dropping their payload here would recreate the blank-panel bug.
-            if fetched:
-                # Read the clock after the fetches, not before: image ages
-                # should reflect when the bytes landed.
-                now = time.time()
+            if fetched or no_payload:
                 with self._lock:
-                    new_images = dict(self.images)
-                    new_images.update(fetched)
-                    self.images = new_images
-                    new_ts = dict(self.image_fetched_at)
-                    for key in fetched:
-                        new_ts[key] = now
-                    self.image_fetched_at = new_ts
-                    self.last_image_refresh = now
+                    if fetched:
+                        self._publish_images(fetched)
+                    # After the bytes, never before them: a key whose new
+                    # bytes have not been published yet must not already read
+                    # "got a payload", or a panel reporting an outage that
+                    # followed a dropped payload would put that payload's last
+                    # good picture back up, labelled 'not readable', for as
+                    # long as the later keys take to fetch.
+                    failed = dict(self.image_fetch_failed)
+                    failed.update(no_payload)
+                    self.image_fetch_failed = failed
         return results
+
+    def _publish_images(self, fetched):
+        """Swap in `fetched` ({key: bytes}) and stamp it. Caller holds _lock."""
+        # Read the clock after the fetches, not before: image ages should
+        # reflect when the bytes landed.
+        now = time.time()
+        old_images = self.images
+        new_images = dict(old_images)
+        new_images.update(fetched)
+        new_ts = dict(self.image_fetched_at)
+        new_changed = dict(self.image_changed_at)
+        for key in fetched:
+            new_ts[key] = now
+            # A byte compare: ~0.1 ms for a 170 KB map on the Pi, against a
+            # decode of hundreds of ms it avoids.
+            if old_images.get(key) != fetched[key]:
+                new_changed[key] = now
+        # Bytes before stamps. The pygame client keys its prepared surfaces on
+        # the stamp, so a lock-free reader that caught a new stamp beside OLD
+        # bytes would file the old picture under the new stamp and keep it;
+        # new bytes beside an old stamp only delay the picture until the
+        # stamps land. (The client also takes lock() for the read; this is
+        # the belt to that brace.)
+        self.images = new_images
+        self.image_fetched_at = new_ts
+        self.image_changed_at = new_changed
+        self.last_image_refresh = now
 
     def start_background(self, data_interval=60, image_interval=900):
         """Start a daemon thread that refreshes data/images on their intervals."""
@@ -4692,6 +4823,27 @@ _CADENCE_S_NO_IMAGE = {
     'propagation': 15.0,
 }
 
+# 1.0.12: cadence for an image panel that drew while a NEWER picture for it was
+# still being prepared on the image-prep thread (_ImageStore.in_flight). On its
+# normal cadence the panel would go on showing the old picture, or the
+# placeholder, for its whole minute. Same grid and shift as the no-image
+# retries (x.75 s, a phase no other panel's slot uses). That grid is the
+# panel's phase + 0.5 s + 15 k, so the first retry falls half a second after
+# the 60 s draw that found the picture in flight. On the Pi the worker has
+# often finished by then (in the delta review's model, about half the MUF and
+# propagation cases and every SDO one, whose small JPEG is queued first); when
+# it has not, that retry redraws the same pixels (about two a day, ~0.1 s
+# each) and the next slot, 15 s on, brings the picture. Skipping the
+# half-second slot would trade those for pictures 15 s later just as often.
+# The MUF panel is here and NOT in _CADENCE_S_NO_IMAGE on purpose: with no
+# map at all (the feed is down) that 796-row panel keeps its minute; only a
+# map already on its way brings it back early.
+_CADENCE_S_PREPARING = {
+    'sdo': 15.0,
+    'propagation': 15.0,
+    'muf_text': 15.0,
+}
+
 def _build_panel_phase():
     """One-time offset per panel so panels sharing a cadence do not all come
     due on the same frame.
@@ -4814,8 +4966,13 @@ PROP_TABS = ['drap', 'aurora', 'enlil']
 TAB_CYCLE_S = 60.0
 
 
-def _next_cycle_tab(current, tabs, key_map, data):
+def _next_cycle_tab(current, tabs, key_map, data, has_picture=None):
     """The tab to show next, skipping ones with no image to show.
+
+    `has_picture(key)`, when given, also counts a tab whose bytes are gone but
+    whose last good picture can still be shown (the render loop passes its
+    _ImageStore's view: after an undecodable payload the data layer drops the
+    bytes, and the panel keeps the previous picture labelled 'not readable').
 
     A feed that is down (or has not loaded yet) would otherwise hold the panel
     blank for a full interval, which on a five-minute cycle is a quarter of the
@@ -4837,8 +4994,15 @@ def _next_cycle_tab(current, tabs, key_map, data):
     if isinstance(images, dict):
         for step in range(1, n + 1):
             cand = tabs[(i + step) % n]
-            if images.get(key_map.get(cand)):
+            key = key_map.get(cand)
+            if images.get(key):
                 return cand
+            if has_picture is not None:
+                try:
+                    if has_picture(key):
+                        return cand
+                except Exception:
+                    pass
     return tabs[(i + 1) % n]
 PROP_TAB_IMAGE_KEY = {
     'drap': 'real-drap',
@@ -5521,8 +5685,13 @@ def _smoothscale_safe(surface, size):
         return pygame.transform.scale(surface, size)
 
 
-def _load_image(data_bytes):
-    """Decode JPEG/PNG bytes into a Pygame surface, or None on failure."""
+def _decode_image(data_bytes):
+    """Decode JPEG/PNG bytes into a Surface, or None on failure.
+
+    The surface is in whatever format SDL_image produced (24-bit RGB for a
+    JPEG, 8-bit palettised or 32-bit RGBA for a PNG) — deliberately NOT
+    convert()ed to the display format: see _prepare_image for why the
+    full-size picture must never be converted on the image-prep thread."""
     if not data_bytes:
         return None
     # Tier 1.5: never hand SVG to SDL_image. nanosvg happily "succeeds" on the
@@ -5541,13 +5710,118 @@ def _load_image(data_bytes):
         pass
     for hint in ('x.jpg', 'x.png'):
         try:
-            return pygame.image.load_extended(io.BytesIO(data_bytes), hint).convert()
+            return pygame.image.load_extended(io.BytesIO(data_bytes), hint)
         except Exception:
             continue
     try:
-        return pygame.image.load(io.BytesIO(data_bytes)).convert()
+        return pygame.image.load(io.BytesIO(data_bytes))
     except Exception:
         return None
+
+
+def _fit_contain(iw, ih, bw, bh):
+    """The size draw_image paints an iw x ih image at inside a bw x bh rect:
+    the largest of the image's own aspect that fits, never upscaled. None
+    when the rect cannot show anything at all.
+
+    One function for both sides of the hand-off: _prepare_image scales to
+    exactly this on the prep thread, and draw_image, given that result,
+    computes it again, gets the surface's own size back, and blits it as is.
+    """
+    if iw <= 0 or ih <= 0 or bw <= 0 or bh <= 0:
+        return None
+    scale = min(bw / iw, bh / ih)
+    if scale >= 1.0:
+        return (iw, ih)
+    nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
+    if nw > bw or nh > bh:
+        # Rounding at extreme aspect ratios can push the 1 px floor past
+        # the rect; a panel too small to show anything shows nothing.
+        return None
+    return (nw, nh)
+
+
+def _fit_width(iw, ih, bw):
+    """The size draw_muf_text gives the MUF map: the panel's width, never
+    past the raster's own (an upscaled PNG only blurs the contours), height
+    in proportion. None when there is nothing to draw.
+
+    1.0.11 then fitted the map into that rect a second time, through
+    draw_image, and the second fit could round a pixel or two narrower: at
+    1440x900 the 720x426 map was drawn 630 px wide, centred in a 632 px rect.
+    The map is now prepared at exactly this size and fills its rect — the
+    same picture, 0.3% wider."""
+    if iw <= 0 or ih <= 0 or bw <= 0:
+        return None
+    w = min(bw, iw)
+    return (w, max(1, int(ih * (w / float(iw)))))
+
+
+def _prepare_image(data_bytes, policy, box, template=None):
+    """Decode `data_bytes` and fit it to `box` exactly as its panel will
+    draw it, in the display's pixel format: the render thread then only
+    blits it. Returns the Surface, or None when the bytes do not decode.
+    Never raises.
+
+    `policy` is 'contain' (draw_image's fit, the SDO and propagation panels)
+    or 'width' (draw_muf_text's, the MUF map). `template` is any surface
+    already in the display format; see below.
+
+    Runs on the image-prep thread, so the ORDER of the steps is the design.
+    In pygame 2.6.1 the decode and the smoothscale release the GIL; convert()
+    does not. Measured on one core (the Pi has one): the render thread kept
+    to within 3 ms of its wake-ups through a 101 ms JPEG decode and a 112 ms
+    smoothscale on a worker thread, and fell 69 ms behind through a 73 ms
+    full-size convert(). So the full-size picture is never converted —
+    except a palettised one (below) — and only the panel-sized result is,
+    which on the Pi is the difference between ~10 ms and a few tens of ms
+    of render thread held up.
+
+    A palettised PNG (the D-layer map, the default propagation tab) cannot
+    be smoothscaled at all, so it is converted first, to the display format
+    itself: 8 to 32 bit is a palette lookup, measured 2.5x cheaper than the
+    convert(24) _smoothscale_safe would otherwise do, and it leaves nothing
+    to convert afterwards. It is the one full-size step that holds the GIL:
+    0.22 ms for the 850x475 D-RAP map here (0.24 ms for the 640x682 GIF the
+    aurora feed falls back to), so of the order of 15 ms on the Pi.
+
+    Thread safety: nothing here touches the display. convert(template)
+    reads only the template's own pixel format — a surface the render thread
+    made once and never draws to — where a bare convert() would read the
+    window surface's.
+    """
+    img = _decode_image(data_bytes)
+    if img is None:
+        return None
+    try:
+        iw, ih = img.get_size()
+        if policy == 'width':
+            size = _fit_width(iw, ih, box[0])
+        else:
+            size = _fit_contain(iw, ih, box[0], box[1])
+        if img.get_bitsize() < 24:
+            img = img.convert(template) if template is not None else img.convert()
+        if size is not None and size != (iw, ih):
+            img = _smoothscale_safe(img, size)
+        if not _same_pixel_format(img, template):
+            img = img.convert(template) if template is not None else img.convert()
+        return img
+    except Exception:
+        return None
+
+
+def _same_pixel_format(img, template):
+    """True when `img` is already in `template`'s pixel format: same depth,
+    same masks. The masks include the alpha mask, so an RGBA picture never
+    matches the display's XRGB and is converted, which drops the alpha:
+    every panel has always blitted opaque."""
+    if template is None:
+        return False
+    try:
+        return (img.get_bitsize() == template.get_bitsize()
+                and img.get_masks() == template.get_masks())
+    except Exception:
+        return False
 
 
 def draw_panel(screen, rect, title, fonts, theme):
@@ -5783,7 +6057,7 @@ def draw_image(screen, rect, surface, fonts=None, theme=None,
         arrived but will not decode" instead of staring at a permanent
         "image loading..." that means all three;
       * an image is painted but the status is non-empty -> label it over the
-        bottom of the image. _get_cached_image keeps serving the last good
+        bottom of the image. _ImageStore keeps serving the last good
         surface, so a stale or newly-undecodable payload would otherwise be
         invisible; serve-stale without an age label is worse than blank for
         someone making a band decision.
@@ -5801,15 +6075,15 @@ def draw_image(screen, rect, surface, fonts=None, theme=None,
         return
     try:
         iw, ih = surface.get_size()
-        if iw == 0 or ih == 0 or rect.w <= 0 or rect.h <= 0:
+        fit = _fit_contain(iw, ih, rect.w, rect.h)
+        if fit is None:
             return
-        scale = min(rect.w / iw, rect.h / ih)
-        nw, nh = max(1, int(iw * scale)), max(1, int(ih * scale))
-        if nw > rect.w or nh > rect.h:
-            # Rounding at extreme aspect ratios can push the 1 px floor past
-            # the rect; a panel too small to show anything shows nothing.
-            return
-        if scale >= 1.0:
+        nw, nh = fit
+        if fit == (iw, ih):
+            # Includes the render loop's own surfaces, which _prepare_image
+            # has already fitted to this rect. (Centred on its real size:
+            # this branch used to centre an image smaller than its rect as
+            # if it had been scaled up to fill it.)
             scaled = surface
         elif image_key is not None and fetched_at is not None:
             key = (image_key, float(fetched_at), (nw, nh))
@@ -5893,7 +6167,9 @@ def draw_muf_text(screen, rect, solar, fonts, theme, surf=None,
     `status` is _image_status_text for the map, drawn over its bottom edge.
     The SDO and PROPAGATION panels label an old picture; the MUF map lost
     that label when it moved here from a propagation tab, while the server
-    can keep serving the last good map for up to 24 hours.
+    can keep serving the last good map for up to 24 hours. With no map, the
+    footer says what is wrong instead of '(map loading)' (_muf_map_problem):
+    that note used to stand through an outage of any length.
 
     The map used to live in a tab of the propagation panel, where it got about
     7% of the screen while this panel spent 35% on five numbers — the one
@@ -5993,12 +6269,38 @@ def draw_muf_text(screen, rect, solar, fonts, theme, surf=None,
         # Directions to the map are pointless when the map is directly above,
         # so it now credits the source instead, which cannot go stale while
         # the source is still what fetch_muf() asks for.
-        _blit_fit(screen, foot_f,
-                  'MUF(3000)km  ·  prop.kc2g.com' if surf is not None
-                  else 'MUF(3000)km  ·  prop.kc2g.com  (map loading)',
-                  theme['label'],
+        if surf is not None:
+            foot = 'MUF(3000)km  ·  prop.kc2g.com'
+        else:
+            problem = _muf_map_problem(status)
+            foot = ('MUF(3000)km  ·  map: %s' % problem if problem
+                    else 'MUF(3000)km  ·  prop.kc2g.com  (map loading)')
+        _blit_fit(screen, foot_f, foot, theme['label'],
                   lab_x, rect.bottom - foot_h, rect.right - lab_x)
     return map_rect
+
+
+def _muf_map_problem(status):
+    """What is wrong with the MUF map, on one line, for the footer of a MUF
+    panel that has no map to draw `status` (_image_status_text for the map)
+    over: 'no data yet', 'feed down', 'image data not readable'. None while
+    nothing is wrong yet (still fetching), and for anything it does not
+    recognise. Without the retry countdown: this panel redraws once a
+    minute, and a countdown that stands still for a minute reads as a hang.
+    Never raises."""
+    try:
+        head, _nl, detail = status.partition('\n')
+        prefix = _IMAGE_LABEL.get('muf-map', 'MUF map') + ': '
+        if not head.startswith(prefix):
+            return None
+        problem = head[len(prefix):]
+        if detail and not detail.startswith('retry'):
+            problem = '%s %s' % (problem, detail)
+        if not problem or problem.startswith('fetching'):
+            return None
+        return problem
+    except Exception:
+        return None
 
 
 def draw_dx_spots(screen, rect, dxspots, fonts, theme):
@@ -6427,68 +6729,463 @@ def _blit_segments(screen, font, segs, x, y, max_w, gap=None):
         pass
 
 
-# Tier 1.2: keys whose payload failed to decode, stamped with the fetch ts
-# that produced them. _load_image makes up to three SDL probes per call and
-# pygame offers no cheap "is this decodable" test, so without this memo an
-# undecodable payload (a 503 body, a truncated JPEG, an SVG the Tier 1.5 guard
-# refuses) is re-probed on every redraw of its panel instead of once per
-# refresh. Bounded by the five _IMAGE_ENDPOINTS keys.
+# Tier 1.2: keys whose payload failed to decode, stamped with the _image_stamp
+# that produced them. A decode is up to three SDL probes and pygame offers no
+# cheap "is this decodable" test, so without this memo an undecodable payload
+# (a 503 body, a truncated JPEG, an SVG the Tier 1.5 guard refuses) would be
+# handed to the decoder again on every pass instead of once per payload.
+# Bounded by the five _IMAGE_ENDPOINTS keys. Written by the render thread only
+# (_ImageStore.collect); _image_status_text reads it.
 _decode_failed_ts: dict = {}
 
 
 def _image_stamp(data, key):
-    """Per-key fetch timestamp, falling back to the global refresh tick.
+    """When the bytes in data.images[key] last CHANGED, as far as `data`
+    can say.
 
-    The getattr/isinstance guard is load-bearing: HamClockData grew
+    1.0.12: prefers image_changed_at, which the data layer moves only when a
+    fetch brings different bytes. image_fetched_at moves on every successful
+    fetch, and every image is re-polled every 900 s whether upstream has
+    published anything or not: the Nov 2026 report caught two of five
+    refetches byte-identical, each one decoded and scaled again for nothing.
+    Falls back to image_fetched_at, then to the global refresh tick, for
+    data objects that predate either.
+
+    The getattr/isinstance guards are load-bearing: HamClockData grew
     image_fetched_at in Tier 1a but stand-ins that predate it (e.g.
     tests/test_themes.py's _StubData) do not have the attribute at all, and an
     AttributeError here is swallowed by the render loop's per-panel
     `except Exception: pass` — which is exactly how the installer-embedded
     client ended up with two permanently blank image panels.
     """
+    _ca = getattr(data, 'image_changed_at', None)
+    if isinstance(_ca, dict):
+        _v = _ca.get(key)
+        if _v is not None:
+            return _v
     _fa = getattr(data, 'image_fetched_at', None)
     return (_fa.get(key, data.last_image_refresh)
             if isinstance(_fa, dict) else data.last_image_refresh)
 
 
-def _get_cached_image(data, key, image_cache, image_cache_ts):
-    """Return a pygame Surface for data.images[key], rebuilt when THAT key's
-    fetch timestamp changes.
+def _fetch_failed(data, key):
+    """True when key's latest attempt got no payload at all: an HTTP error,
+    a timeout, nothing listening (hamclock_data's image_fetch_failed, 1.0.12).
+    False when it got bytes back, and for a data object that cannot say.
+    Never raises: _ImageStore.surface calls it outside any guard of its own."""
+    try:
+        _ff = getattr(data, 'image_fetch_failed', None)
+        return isinstance(_ff, dict) and _ff.get(key) is True
+    except Exception:
+        return False
 
-    Tier 1.2: the stamp used to be the global data.last_image_refresh, so one
-    endpoint arriving invalidated the decoded surfaces of all five and the
-    render thread paid 3-4 redundant full JPEG/PNG decodes per retry during
-    cold boot (~36-165 ms each, ARMv6 extrapolated). A decode that fails is
-    now remembered against the same stamp so it is retried once per refresh,
-    not once per redraw; the previously decoded surface (if any) keeps being
-    served meanwhile.
+
+# 1.0.12: what the image-prep thread has done, for the report. Written by the
+# render thread only (_ImageStore.collect), so it needs no lock. `ms` is the
+# job's elapsed time on the worker, which includes every moment the render
+# thread took the CPU from it: it says how long a new picture took to be
+# ready, not how long anything waited for it.
+_image_prep_stats = {'jobs': 0, 'failed': 0, 'last_ms': None, 'max_ms': None}
+# The running loop's _ImagePrep, so the report can say whether a worker
+# thread is in use and how much is queued.
+_image_prep_live = [None]
+
+
+def _note_image_prep(ms, failed):
+    st = _image_prep_stats
+    st['jobs'] += 1
+    if failed:
+        st['failed'] += 1
+    if ms is not None:
+        ms = round(ms, 1)
+        st['last_ms'] = ms
+        if st['max_ms'] is None or ms > st['max_ms']:
+            st['max_ms'] = ms
+
+
+def _image_prep_summary():
+    """perf.image_prep for the report. Never raises."""
+    try:
+        prep = _image_prep_live[0]
+        out = dict(_image_prep_stats)
+        out['threaded'] = bool(prep is not None and prep.threaded)
+        out['pending'] = prep.pending() if prep is not None else 0
+        return out
+    except Exception:
+        return {}
+
+
+def _lower_thread_priority(step=10):
+    """Best effort: drop the CALLING thread's scheduling priority by `step`
+    nice levels, so that on a single core the render thread wins the CPU
+    whenever it wakes. Linux keeps a nice value per thread and accepts a
+    thread id under PRIO_PROCESS; elsewhere that would renice the whole
+    process, so it is left alone. Raising nice needs no privilege."""
+    if not sys.platform.startswith('linux'):
+        return False
+    try:
+        tid = threading.get_native_id()
+        cur = os.getpriority(os.PRIO_PROCESS, tid)
+        os.setpriority(os.PRIO_PROCESS, tid, min(19, cur + step))
+        return True
+    except Exception:
+        return False
+
+
+def _run_image_job(job, template):
+    """One _ImagePrep job -> (key, stamp, policy, box, surface or None, ms)."""
+    key, stamp, policy, box, raw = job
+    t0 = _mono()
+    try:
+        surf = _prepare_image(raw, policy, box, template)
+    except Exception:
+        surf = None
+    return (key, stamp, policy, box, surf, (_mono() - t0) * 1000.0)
+
+
+class _ImagePrep(object):
+    """Decodes images and fits them to their panels off the render thread.
+
+    The Nov 2026 report: two frames of 425 and 448 ms, a minute apart, each
+    drawing only the PROPAGATION panel. The first showing of a tab after its
+    image refreshed decoded the JPEG, converted it and smoothscaled it right
+    there in the render loop — 352 ms of panel time on a 700 MHz ARMv6, three
+    times every fifteen minutes. One worker thread now does all of that (see
+    _prepare_image for why it really runs alongside the render thread on one
+    core), and the loop only ever blits a surface already the size its panel
+    draws it at.
+
+    Thread model. request() and collect() belong to the render thread; the
+    worker touches nothing but its own job and the queues below, under _cv.
+    A job is (key, stamp, policy, box, raw bytes); its result is the first
+    four plus the surface (None when the bytes do not decode) and the job's
+    elapsed ms. One pending job per key: a newer request for a key replaces
+    one that has not started yet. A result whose request has since been
+    superseded is still delivered; _ImageStore.collect drops it.
+
+    threaded=False runs each job inside request(), on the caller's thread:
+    what the test suite runs (deterministic, and no second thread inside a
+    fake-clock harness), and the fallback if no thread can be started.
     """
-    raw = data.images.get(key) if isinstance(data.images, dict) else None
-    if raw is None:
-        return None
-    ts = _image_stamp(data, key)
-    if image_cache_ts.get(key) != ts or key not in image_cache:
-        if _decode_failed_ts.get(key) == ts:
-            return image_cache.get(key)
-        surf = _load_image(raw)
-        if surf is not None:
-            image_cache[key] = surf
-            image_cache_ts[key] = ts
-            _decode_failed_ts.pop(key, None)
-        else:
-            # First time we have seen THIS payload fail. Tell the data layer,
-            # so the key is refetched on the retry backoff instead of sitting
-            # satisfied until the next slow cycle: the decoder is the only
-            # part of the system that can tell a useless 200 from a good one.
-            if _decode_failed_ts.get(key) != ts:
-                try:
-                    data.mark_image_undecodable(key)
-                except AttributeError:
-                    pass        # older data layer; nothing to report to
-                except Exception:
-                    pass
-            _decode_failed_ts[key] = ts
-    return image_cache.get(key)
+
+    def __init__(self, threaded=True, template=None):
+        self.threaded = bool(threaded)
+        self.template = template
+        self._cv = threading.Condition()
+        self._pending = collections.OrderedDict()
+        self._busy = False
+        self._done = []
+        self._thread = None
+        self._stopped = False
+        self.worker_tid = None
+
+    def request(self, key, stamp, policy, box, raw):
+        job = (key, stamp, policy, box, raw)
+        if self.threaded and self._ensure_worker():
+            with self._cv:
+                self._pending.pop(key, None)
+                self._pending[key] = job
+                self._cv.notify()
+            return
+        self._done.append(_run_image_job(job, self.template))
+
+    def collect(self):
+        """Every result finished since the last call, oldest first."""
+        if not self._done:          # the 10 FPS common case: no lock, no list
+            return ()
+        with self._cv:
+            done, self._done = self._done, []
+        return done
+
+    def pending(self):
+        with self._cv:
+            return len(self._pending) + (1 if self._busy else 0)
+
+    def stop(self, join_timeout=None):
+        """Drop what is queued and end the worker. With `join_timeout`, wait
+        that long for a job already running: pygame.quit() tears SDL down,
+        and a decode in flight on the other thread must not be inside
+        SDL_image when it does."""
+        with self._cv:
+            self._stopped = True
+            self._pending.clear()
+            self._cv.notify_all()
+        t = self._thread
+        if (join_timeout is not None and t is not None
+                and t is not threading.current_thread()):
+            try:
+                t.join(join_timeout)
+            except Exception:
+                pass
+
+    def _ensure_worker(self):
+        if self._thread is not None:
+            return True
+        try:
+            t = threading.Thread(target=self._work, name='hamclock-imgprep',
+                                 daemon=True)
+            t.start()
+        except Exception as e:
+            print('[images] no prep thread (%s); decoding inline' % e,
+                  file=sys.stderr)
+            self.threaded = False
+            return False
+        self._thread = t
+        return True
+
+    def _work(self):
+        self.worker_tid = threading.get_native_id()
+        _lower_thread_priority()
+        while True:
+            with self._cv:
+                while not self._pending and not self._stopped:
+                    self._cv.wait()
+                if self._stopped:
+                    return
+                _key, job = self._pending.popitem(last=False)
+                self._busy = True
+            # _run_image_job already turns a failed prepare into a None
+            # surface; this guards the thread itself. A dead worker would
+            # leave every later request queued forever and the image panels
+            # on their last pictures until the kiosk restarted.
+            try:
+                result = _run_image_job(job, self.template)
+            except Exception:
+                result = tuple(job[:4]) + (None, None)
+            with self._cv:
+                self._busy = False
+                self._done.append(result)
+
+
+class _ImageStore(object):
+    """The render thread's side of _ImagePrep: which surface each image
+    panel can blit right now, and the bookkeeping a decode failure needs.
+
+    `ready[key]` = (stamp, policy, box, surface) is the newest picture
+    prepared for `key`; it stays on screen while a newer one is prepared.
+    `asked[key]` = (stamp, policy, box) is the newest request, so a payload
+    is never queued twice and a superseded result is recognised.
+    """
+
+    def __init__(self, prep):
+        self.prep = prep
+        self.ready = {}
+        self.asked = {}
+        self.boxes = {}
+        # Identity of what the last sync looked at; any change resyncs.
+        self._seen = [None, None, None, None]
+        self._resync_at = None
+
+    def update(self, data, boxes, now_mono):
+        """Once per frame, before any panel asks for a surface: queue what
+        has changed, then take in what the worker has finished.
+
+        Sync is gated on the identity of data.images, its two stamp dicts
+        and `boxes` — HamClockData replaces each whole on every change — so
+        the quiescent frame costs four `is` tests. A once-a-second resync
+        covers a stand-in that edits a dict in place."""
+        images = getattr(data, 'images', None)
+        changed = getattr(data, 'image_changed_at', None)
+        fetched = getattr(data, 'image_fetched_at', None)
+        seen = self._seen
+        if (images is not seen[0] or changed is not seen[1]
+                or fetched is not seen[2] or boxes is not seen[3]
+                or self._resync_at is None or now_mono >= self._resync_at):
+            seen[0], seen[1], seen[2], seen[3] = images, changed, fetched, boxes
+            self._resync_at = now_mono + 1.0
+            self.sync(data, boxes)
+        self.collect(data)
+
+    def sync(self, data, boxes):
+        """Request every image whose bytes or box differ from what is
+        ready or already asked for. `boxes` = {key: (policy, (w, h))}."""
+        self.boxes = boxes
+        lock = getattr(data, 'lock', None)
+        try:
+            ctx = lock() if callable(lock) else None
+        except Exception:
+            ctx = None
+        # One consistent snapshot of bytes and stamps: the data thread swaps
+        # them as separate assignments. (The lock is held for dict reads
+        # only; the requests — inline decodes, in the test suite — run after
+        # it is released, and nothing here waits on the data thread.)
+        wants = None
+        if ctx is not None:
+            try:
+                with ctx:
+                    wants = self._snapshot(data, boxes)
+            except Exception:
+                wants = None
+        if wants is None:
+            wants = self._snapshot(data, boxes)
+        for key, want, raw in wants:
+            self.asked[key] = want
+            self.prep.request(key, want[0], want[1], want[2], raw)
+
+    def _snapshot(self, data, boxes):
+        # Every stamp BEFORE the bytes. refresh_images publishes a key's bytes
+        # before its stamps, so a stamp read first is never newer than the
+        # bytes read after it: at worst new bytes are paired with the old
+        # stamp (one redundant job once the new stamp lands), never a new
+        # stamp with OLD bytes, which would file the old picture under the
+        # new stamp and keep it until the bytes next changed. sync holds
+        # data.lock() round this as well; the order is what keeps a reader
+        # honest without it.
+        stamps = {}
+        for key in boxes:
+            try:
+                stamps[key] = _image_stamp(data, key)
+            except Exception:
+                stamps[key] = None
+        images = getattr(data, 'images', None)
+        if not isinstance(images, dict):
+            return ()
+        out = []
+        for key, (policy, box) in boxes.items():
+            raw = images.get(key)
+            stamp = stamps.get(key)
+            if raw is None or stamp is None:
+                continue
+            want = (stamp, policy, box)
+            if self.asked.get(key) == want:
+                continue
+            r = self.ready.get(key)
+            if r is not None and r[:3] == want:
+                # Already on hand: no job, but this is now the newest want,
+                # so a result still in flight for something else (a box that
+                # changed and changed back) arrives superseded instead of
+                # replacing the right picture with one the panel cannot use.
+                self.asked[key] = want
+                continue
+            if _decode_failed_ts.get(key) == stamp:
+                continue            # this very payload already failed
+            out.append((key, want, raw))
+        return out
+
+    def collect(self, data):
+        for key, stamp, policy, box, surf, ms in self.prep.collect():
+            _note_image_prep(ms, surf is None)
+            if self.asked.get(key) != (stamp, policy, box):
+                continue            # superseded while it was being prepared
+            if surf is None:
+                # First failure of THIS payload: tell the data layer, so the
+                # key is refetched on the retry backoff instead of sitting
+                # "satisfied" until the next slow cycle. The decoder is the
+                # only part of the system that can tell a useless 200 from a
+                # good one.
+                if _decode_failed_ts.get(key) != stamp:
+                    # With the stamp, so a data layer that has since taken
+                    # newer bytes ignores the stale verdict rather than
+                    # dropping them.
+                    try:
+                        data.mark_image_undecodable(key, stamp=stamp)
+                    except TypeError:
+                        try:
+                            data.mark_image_undecodable(key)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass        # an older data layer has no such hook
+                _decode_failed_ts[key] = stamp
+            else:
+                self.ready[key] = (stamp, policy, box, surf)
+                _decode_failed_ts.pop(key, None)
+
+    def surface(self, data, key):
+        """The surface to blit for `key`, or None.
+
+        Serves the last good picture while a newer one is prepared, and after
+        a newer payload failed to decode — including once the data layer has
+        dropped that payload, as mark_image_undecodable does. While that
+        failure is the newest thing that happened to the key (no newer bytes,
+        and no attempt since that failed to fetch anything: refetches that
+        bring the same junk back keep it newest), the previous picture stays
+        up under _image_status_text's 'image data not readable'. 1.0.11 kept
+        the picture up through the same fault too (it decoded at draw time,
+        by when the bad bytes had been fetched again), but labelled it 'no
+        data yet': its decoder had dropped the bytes before the label was
+        worked out. Once the requests themselves fail, the key gets nothing
+        and the old picture comes down, as it did in 1.0.11: the SDO and MUF
+        panels report the outage, and the propagation panel's tab cycle,
+        which asks this method, leaves the tab out until the feed is back.
+        (A feed that fails without sending junk first keeps its bytes in
+        data.images, and so its picture, which _image_status_text labels
+        with its age.) A key with no bytes and no such failure gets
+        nothing."""
+        images = getattr(data, 'images', None)
+        if not isinstance(images, dict):
+            return None
+        if images.get(key) is None:
+            failed = _decode_failed_ts.get(key)
+            if failed is None or _fetch_failed(data, key):
+                return None
+            try:
+                if failed != _image_stamp(data, key):
+                    return None
+            except Exception:
+                return None
+        r = self.ready.get(key)
+        want = self.boxes.get(key)
+        if r is None or want is None or (r[1], r[2]) != want:
+            return None
+        return r[3]
+
+    def stamp_of(self, key):
+        r = self.ready.get(key)
+        return r[0] if r is not None else None
+
+    def in_flight(self, key):
+        """True while the newest request for `key` has been neither filed
+        nor failed: what the panel shows now (the previous picture, or
+        nothing) is about to be out of date."""
+        want = self.asked.get(key)
+        if want is None:
+            return False
+        r = self.ready.get(key)
+        if r is not None and r[:3] == want:
+            return False
+        return _decode_failed_ts.get(key) != want[0]
+
+
+def _prop_tab_h(fonts):
+    """Height of the propagation panel's tab strip."""
+    return max(20, fonts['panel'].get_height() + 6)
+
+
+def _prop_image_rect(prop_inner, fonts):
+    """Where the propagation panel draws its map, below the tab strip."""
+    tab_h = _prop_tab_h(fonts)
+    return pygame.Rect(prop_inner.x, prop_inner.y + tab_h + 4,
+                       prop_inner.w, prop_inner.h - tab_h - 4)
+
+
+def _image_boxes(layout, fonts):
+    """{image key: (policy, (w, h))}: the rect each image is drawn into,
+    computed exactly as the render loop's panel draws compute it."""
+    sdo = _panel_inner_rect(layout['sdo'])
+    muf = _panel_inner_rect(layout['muf'])
+    prop = _prop_image_rect(_panel_inner_rect(layout['propagation']), fonts)
+    boxes = {'solar-image': ('contain', (sdo.w, sdo.h)),
+             'muf-map': ('width', (muf.w, muf.h))}
+    for tab in PROP_TABS:
+        key = PROP_TAB_IMAGE_KEY.get(tab)
+        if key and key not in boxes:
+            boxes[key] = ('contain', (prop.w, prop.h))
+    return boxes
+
+
+def _new_image_prep():
+    """The render loop's _ImagePrep. HAMCLOCK_IMAGE_PREP=inline decodes on
+    the render thread instead (the test suite's setting)."""
+    threaded = os.environ.get('HAMCLOCK_IMAGE_PREP', '').strip().lower() != 'inline'
+    try:
+        # Made here, on the render thread, once: see _prepare_image.
+        template = pygame.Surface((1, 1)).convert()
+    except Exception:
+        template = None
+    prep = _ImagePrep(threaded=threaded, template=template)
+    _image_prep_live[0] = prep
+    return prep
 
 
 # Tier 2.5: what to call each feed on screen. The panel titles ("SDO IMAGE")
@@ -6567,7 +7264,7 @@ def _fmt_age(secs):
         return '?'
 
 
-def _image_status_text(data, key):
+def _image_status_text(data, key, shown_stamp=None):
     """Honest one/two-line status for image panel `key`, or None.
 
     TOTAL by construction. The render loop evaluates this as an *argument* to
@@ -6580,6 +7277,11 @@ def _image_status_text(data, key):
 
     Returning None means "say nothing", which is the right answer for a fresh
     image and for any data object this function does not understand.
+
+    `shown_stamp` (1.0.12) is the stamp of the picture the panel draws under
+    this status (_ImageStore.stamp_of), or None when it draws none. Only the
+    'not readable' case uses it: that picture is then OLDER than the payload
+    data describes, so its age cannot be read off data.
 
     Deliberately NOT sourced from `data.images.get(key) is not None`: that
     cannot tell a decode failure from a decode success, and data.images is
@@ -6602,12 +7304,37 @@ def _image_status_text(data, key):
 
         # 1) Bytes in hand that SDL refused. Checked first and against the
         #    stamp that produced them, so a *newly* bad payload is reported
-        #    even while _get_cached_image is still showing the last good
-        #    surface underneath.
+        #    even while _ImageStore is still showing the last good surface
+        #    underneath. The memo is stamped with _image_stamp (when the
+        #    bytes changed), so that is what it is compared with.
+        #    And whether or not the data layer has since dropped those bytes
+        #    (it does, for exactly this reason): the panel keeps the previous
+        #    picture through it, and "no data yet" over a picture is wrong.
+        #    Unless an attempt since then failed to fetch anything: the
+        #    dropped junk is no longer the latest news, _ImageStore stops
+        #    serving the old picture, and step 2 reports the outage.
         failed = _decode_failed_ts.get(key)
-        if (raw is not None and failed is not None and stamp is not None
-                and failed == stamp):
-            return '%s: image data\nnot readable' % name
+        if failed is not None and (raw is not None
+                                   or not _fetch_failed(data, key)):
+            try:
+                if failed == _image_stamp(data, key):
+                    # The picture under this label can be hours old (an
+                    # upstream that keeps serving one bad body holds it up),
+                    # and a stale picture without its age is worse than none.
+                    # Its stamp is when its bytes arrived, so this is the
+                    # least it can be — unless the wall clock has been
+                    # stepped forward since (the Pi has no RTC), which
+                    # inflates it by the step, as it does the server's own
+                    # /api/health ages.
+                    if (isinstance(shown_stamp, (int, float))
+                            and not isinstance(shown_stamp, bool)
+                            and shown_stamp > 0
+                            and now - shown_stamp >= _IMAGE_STALE_S):
+                        return '%s: image data\nnot readable, %s old' % (
+                            name, _fmt_age(now - shown_stamp))
+                    return '%s: image data\nnot readable' % name
+            except Exception:
+                pass
 
         fs = getattr(data, 'image_fail_streak', None)
         streak = fs.get(key, 0) if isinstance(fs, dict) else 0
@@ -6943,11 +7670,47 @@ def _clock_step_s():
         return None
 
 
-def _ntp_synced():
-    """True when systemd-timesyncd has synchronised the clock since boot,
-    False when it has not, None when this is not a timesyncd system."""
+#: systemd-timesyncd touches this each time it accepts an NTP sample and
+#: adjusts the clock. It lives in the service's RuntimeDirectory, so systemd
+#: deletes it (and /run/systemd/timesync) whenever timesyncd stops.
+_TIMESYNC_SYNCED = '/run/systemd/timesync/synchronized'
+
+
+def _ntp_last_sync_age_s():
+    """Seconds since the running systemd-timesyncd last accepted an NTP
+    sample and adjusted the clock, or None.
+
+    timesyncd touches /run/systemd/timesync/synchronized after every sample
+    it accepts, slewed or stepped (systemd v257 timesyncd-manager.c; a
+    sample it rejects as a spike leaves the file alone), so the mtime is the
+    LAST accepted sync, where _ntp_synced() only says whether there has been
+    one. The file is in the service's RuntimeDirectory: systemd deletes it
+    whenever timesyncd stops, and the settings script restarts timesyncd
+    whenever it applies an NTP setting. So:
+      * an age: healthy reads under ~35 minutes (PollIntervalMaxSec=2048),
+        up to ~70 after a rejected spike; hours mean samples are not getting
+        through, and the Pi (no RTC) is running on its crystal — the likeliest
+        reading of the ~10 s backward steps in the Oct and Nov 2026 reports;
+      * None with ntp_synced False: timesyncd is running but has accepted
+        nothing since it (re)started;
+      * None with ntp_synced None: timesyncd is not running — stopped, or
+        replaced by another time daemon (chrony, ntpd), whose syncs these
+        fields cannot see.
+    A negative age means the clock was stepped back AFTER the last accepted
+    sample, by something other than timesyncd."""
     try:
-        if os.path.exists('/run/systemd/timesync/synchronized'):
+        return round(time.time() - os.stat(_TIMESYNC_SYNCED).st_mtime, 1)
+    except Exception:
+        return None
+
+
+def _ntp_synced():
+    """True when the running systemd-timesyncd has accepted an NTP sample
+    since it (re)started, False when it is running but has not, None when it
+    is not running or this is not a timesyncd system (systemd removes
+    /run/systemd/timesync whenever the service stops)."""
+    try:
+        if os.path.exists(_TIMESYNC_SYNCED):
             return True
         if os.path.isdir('/run/systemd/timesync'):
             return False
@@ -7482,7 +8245,8 @@ def _collect_telemetry(screen, data, fonts=None, settings=None,
             'proc_age_s': _process_age_s(),
         },
         'host': dict(_collect_host(), clock_step_s=_clock_step_s(),
-                     ntp_synced=_ntp_synced()),
+                     ntp_synced=_ntp_synced(),
+                     ntp_last_sync_age_s=_ntp_last_sync_age_s()),
         'display': _collect_display(screen),
         'versions': _collect_versions(),
         'perf': {
@@ -7493,6 +8257,7 @@ def _collect_telemetry(screen, data, fonts=None, settings=None,
             'slow_frames': _slow_frames_summary(),
             'glyph': dict(_glyph_stats, size=len(_glyph_cache),
                           cap=_GLYPH_CACHE_CAP),
+            'image_prep': _image_prep_summary(),
         },
         # defer_server: leave this for the sender thread. Collecting it here
         # blocks the 10 FPS render loop while the confirm dialog is being
@@ -7621,6 +8386,35 @@ def _join_dash(*parts):
     return ' - '.join(str(p) for p in parts if p not in (None, '', '--'))
 
 
+def _clock_sync_phrase(host):
+    """The report's clock fields in words, for the confirm box: when time
+    sync last adjusted the clock (host.ntp_last_sync_age_s / ntp_synced) and
+    how far the clock has been stepped while the dashboard ran
+    (host.clock_step_s). Never raises."""
+    try:
+        age = host.get('ntp_last_sync_age_s')
+        synced = host.get('ntp_synced')
+        step = host.get('clock_step_s')
+        parts = []
+        if isinstance(age, (int, float)) and not isinstance(age, bool):
+            parts.append('time sync %s ago' % _fmt_age(age) if age >= 0
+                         else 'stepped back since its last time sync')
+        elif synced is False:
+            parts.append('time sync running, not synced yet')
+        else:
+            # Both fields are read from timesyncd's files, so all this can
+            # say is that timesyncd is not running. A Pi that keeps time with
+            # chrony or ntpd (Debian removes timesyncd when either is
+            # installed) is synced without these fields ever showing it.
+            parts.append('timesyncd not running, sync status unknown')
+        if (isinstance(step, (int, float)) and not isinstance(step, bool)
+                and step):
+            parts.append('stepped %+.1f s while running' % step)
+        return _join_dash(*parts)
+    except Exception:
+        return '(unknown)'
+
+
 def _report_confirm_lines(payload, callsign=''):
     """The plain-language inventory shown before anything is sent.
 
@@ -7666,6 +8460,7 @@ def _report_confirm_lines(payload, callsign=''):
         'up %s' % _fmt_uptime(host.get('uptime_s'))
         if host.get('uptime_s') is not None else None) or '(unknown)'),
         'label'))
+    L.append(('  Clock       %s' % _clock_sync_phrase(host), 'label'))
     L.append(('  Display     %s' % (_join_dash(
         'SDL %s' % disp.get('sdl_driver') if disp.get('sdl_driver') else None,
         '%s-bit colour' % depth if depth else None,
@@ -8576,8 +9371,12 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
         print('data start error:', e, file=sys.stderr)
 
     active_tab = 'drap'
-    image_cache = {}
-    image_cache_ts = {}
+    # 1.0.12: every image is decoded and fitted to its panel on a worker
+    # thread (_ImagePrep); the panels below only blit what it has finished.
+    image_store = _ImageStore(_new_image_prep())
+    # (layout, fonts, boxes): boxes recomputed only when either changes.
+    _image_boxes_for = [None, None, None]
+    _image_err_last = [None]
     tab_regions = {}
     # Opt-in diagnostics: the status bar's SEND REPORT chip is hit-tested from
     # here exactly like the propagation tabs above, and the state dict is
@@ -8837,8 +9636,9 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
             # tab's pixels behind until something else forced a flip.
             if TAB_CYCLE_S > 0 and time.time() >= next_tab_at:
                 _tab_slot = next_tab_at
-                _cycled = _next_cycle_tab(active_tab, PROP_TABS,
-                                          tab_image_key, data)
+                _cycled = _next_cycle_tab(
+                    active_tab, PROP_TABS, tab_image_key, data,
+                    has_picture=lambda k: image_store.surface(data, k) is not None)
                 if _cycled != active_tab:
                     active_tab = _cycled
                     # Repaint ONLY the propagation panel. A tab change alters
@@ -8908,6 +9708,22 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
                     TAB_CYCLE_S - _CADENCE_S['propagation'] / 2.0))
             _last_now[0] = now_ts
             force_all = will_full_flip
+
+            # Hand new image bytes to the prep thread and take back what it
+            # has finished, before any panel below asks for a surface.
+            try:
+                if (_image_boxes_for[0] is not layout
+                        or _image_boxes_for[1] is not fonts):
+                    _image_boxes_for[:] = [layout, fonts,
+                                           _image_boxes(layout, fonts)]
+                image_store.update(data, _image_boxes_for[2], _mono())
+            except Exception as e:
+                # Images are the one thing a panel can do without; a failure
+                # here must not become a RECOVERING overlay every frame. Said
+                # once per distinct error, not ten times a second.
+                if str(e) != _image_err_last[0]:
+                    _image_err_last[0] = str(e)
+                    print('image prep error: %s' % e, file=sys.stderr)
 
             # Set once the header and status bar have had their turn. The
             # quarter-second phases keep slow panels out of those frames in
@@ -9015,22 +9831,31 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
                 sdo_surf = None
                 _t0 = _mono()
                 try:
-                    sdo_surf = _get_cached_image(data, 'solar-image', image_cache, image_cache_ts)
+                    sdo_surf = image_store.surface(data, 'solar-image')
                     draw_image(screen, panel_rects[2], sdo_surf, fonts, theme,
-                               image_key='solar-image',
-                               fetched_at=_image_stamp(data, 'solar-image'),
-                               status=_image_status_text(data, 'solar-image'))
+                               status=_image_status_text(
+                                   data, 'solar-image',
+                                   image_store.stamp_of('solar-image')
+                                   if sdo_surf is not None else None))
                 except Exception:
                     pass
                 _record_panel_ms('sdo', _t0)
                 redrawn_this_frame.add('sdo')
                 # On the grid like every other panel. now_ts + cadence let the
-                # image panels drift onto the header's whole seconds.
+                # image panels drift onto the header's whole seconds. Back on
+                # the faster retry grid, not in a minute, while the picture
+                # is missing OR still being prepared (see
+                # _CADENCE_S_PREPARING): a panel that had just drawn would
+                # otherwise hold the old one (or the placeholder) for its
+                # whole minute.
                 _panel_due_at['sdo'] = (
                     _next_due('sdo', now_ts, _sched_epoch)
-                    if sdo_surf is not None
+                    if (sdo_surf is not None
+                        and not image_store.in_flight('solar-image'))
                     else _next_due('sdo', now_ts, _sched_epoch,
-                                   _CADENCE_S_NO_IMAGE.get('sdo'),
+                                   _CADENCE_S_NO_IMAGE.get('sdo')
+                                   if sdo_surf is None
+                                   else _CADENCE_S_PREPARING.get('sdo'),
                                    _NO_IMAGE_SHIFT_S))
             if _panel_due('geomag'):
                 _t0 = _mono()
@@ -9071,21 +9896,21 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
                 mid_inner = draw_panel(screen, mid_rect, 'MUF MAP', fonts, theme)
                 muf_surf = None
                 try:
-                    muf_surf = _get_cached_image(data, 'muf-map',
-                                                 image_cache, image_cache_ts)
+                    muf_surf = image_store.surface(data, 'muf-map')
                 except Exception:
                     muf_surf = None
-                _muf_fetched = (data.image_fetched_at.get('muf-map', 0.0)
-                                if isinstance(
-                                    getattr(data, 'image_fetched_at', None),
-                                    dict) else 0.0)
-                _muf_status = _image_status_text(data, 'muf-map')
+                # Which picture that is, for the "same map as last time"
+                # test below. (Already the panel's width: no fetched_at, so
+                # draw_image has nothing to scale or cache.)
+                _muf_fetched = image_store.stamp_of('muf-map')
+                _muf_status = _image_status_text(
+                    data, 'muf-map',
+                    _muf_fetched if muf_surf is not None else None)
                 _muf_map = None
                 try:
                     _muf_map = draw_muf_text(
                         screen, mid_inner, data.solar or {}, fonts, theme,
-                        surf=muf_surf, image_key='muf-map',
-                        fetched_at=_muf_fetched, status=_muf_status)
+                        surf=muf_surf, status=_muf_status)
                 except Exception:
                     pass
                 _record_panel_ms('muf_text', _t0)
@@ -9108,7 +9933,16 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
                 else:
                     _muf_push_rect = mid_rect
                 _muf_last_sig[0] = _sig
-                _panel_due_at['muf_text'] = _next_due('muf_text', now_ts, _sched_epoch)
+                # A map still being prepared brings the panel back on the
+                # image panels' faster retry grid (x.75, clear of every other
+                # slot) rather than a minute later. Only then: with no map at
+                # all (the feed is down) this 796-row panel keeps its minute.
+                _panel_due_at['muf_text'] = (
+                    _next_due('muf_text', now_ts, _sched_epoch,
+                              _CADENCE_S_PREPARING.get('muf_text'),
+                              _NO_IMAGE_SHIFT_S)
+                    if image_store.in_flight('muf-map')
+                    else _next_due('muf_text', now_ts, _sched_epoch))
 
             # ---- RIGHT COLUMN ----
             dx_r = layout["dx_spots"]
@@ -9139,31 +9973,32 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
             if _panel_due('propagation'):
                 _t0 = _mono()
                 prop_inner = draw_panel(screen, prop_r, 'PROPAGATION', fonts, theme)
-                _tab_h = max(20, fonts['panel'].get_height() + 6)
+                _tab_h = _prop_tab_h(fonts)
                 tab_bar = pygame.Rect(prop_inner.x, prop_inner.y,
                                       prop_inner.w, _tab_h)
                 tab_regions = draw_tabs(screen, tab_bar, PROP_TABS,
                                         active_tab, fonts, theme)
-                img_rect = pygame.Rect(prop_inner.x, prop_inner.y + _tab_h + 4,
-                                       prop_inner.w, prop_inner.h - _tab_h - 4)
+                img_rect = _prop_image_rect(prop_inner, fonts)
                 # Tier 2.5: hoisted out of the try — see the sdo panel above.
                 surf = None
+                key = tab_image_key.get(active_tab, 'real-drap')
                 try:
-                    key = tab_image_key.get(active_tab, 'real-drap')
-                    surf = _get_cached_image(data, key, image_cache, image_cache_ts)
+                    surf = image_store.surface(data, key)
                     draw_image(screen, img_rect, surf, fonts, theme,
-                               image_key=key,
-                               fetched_at=_image_stamp(data, key),
-                               status=_image_status_text(data, key))
+                               status=_image_status_text(
+                                   data, key, image_store.stamp_of(key)
+                                   if surf is not None else None))
                 except Exception:
                     pass
                 _record_panel_ms('propagation', _t0)
                 redrawn_this_frame.add('propagation')
                 _panel_due_at['propagation'] = (
                     _next_due('propagation', now_ts, _sched_epoch)
-                    if surf is not None
+                    if surf is not None and not image_store.in_flight(key)
                     else _next_due('propagation', now_ts, _sched_epoch,
-                                   _CADENCE_S_NO_IMAGE.get('propagation'),
+                                   _CADENCE_S_NO_IMAGE.get('propagation')
+                                   if surf is None
+                                   else _CADENCE_S_PREPARING.get('propagation'),
                                    _NO_IMAGE_SHIFT_S))
 
             panel_rects_map = {
@@ -9254,6 +10089,10 @@ def _run_render_loop(screen, fonts, theme, settings, injected_iter=None):
 
     try:
         data.stop()
+    except Exception:
+        pass
+    try:
+        image_store.prep.stop(join_timeout=2.0)
     except Exception:
         pass
     pygame.quit()
@@ -10548,7 +11387,7 @@ done
 # text itself. scripts/sync_installers.py stamps it from the repo VERSION file
 # and --check fails the build if the two drift.
 sudo tee "$INSTALL_DIR/VERSION" > /dev/null << 'HCVERSIONTXT'
-1.0.11
+1.0.12
 HCVERSIONTXT
 sudo chown root:root "$INSTALL_DIR/VERSION"
 sudo chmod 0644 "$INSTALL_DIR/VERSION"
